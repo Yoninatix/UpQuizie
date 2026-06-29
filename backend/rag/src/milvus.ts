@@ -92,26 +92,32 @@ export async function deleteBySubject(subjectId: string): Promise<void> {
 export interface SearchHit {
   text: string;
   document_id: string;
+  chunk_index: number;
   score: number;
 }
 
 export async function search(
   subjectId: string,
   vector: number[],
-  topK = 5
+  topK = 5,
+  documentId = ""
 ): Promise<SearchHit[]> {
   const c = await getClient();
+  const filters = [];
+  if (subjectId) filters.push(`subject_id == "${subjectId}"`);
+  if (documentId) filters.push(`document_id == "${documentId}"`);
   const res = await c.search({
     collection_name: COLLECTION,
     data: [vector],
     limit: topK,
-    filter: subjectId ? `subject_id == "${subjectId}"` : undefined,
-    output_fields: ["text", "document_id"],
+    filter: filters.length ? filters.join(" and ") : undefined,
+    output_fields: ["text", "document_id", "chunk_index"],
     metric_type: "COSINE",
   });
   return (res.results || []).map((r: any) => ({
     text: r.text,
     document_id: r.document_id,
+    chunk_index: Number(r.chunk_index),
     score: r.score,
   }));
 }

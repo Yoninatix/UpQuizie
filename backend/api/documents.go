@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -96,6 +98,144 @@ func listDocuments(c *gin.Context) {
 	c.JSON(200, out)
 }
 
+// generationOptions supplies non-free-text generation controls. Topics are
+// extracted from uploaded-document labels/headings and previously validated
+// questions, while documents are limited to materials that finished indexing.
+func generationOptions(c *gin.Context) {
+	subjectID := c.Param("id")
+	documentID := c.Query("document_id")
+
+	rows, err := db.Query(context.Background(),
+		`SELECT id, filename FROM uploaded_documents
+		 WHERE subject_id=$1 AND status='ready' ORDER BY created_at DESC`, subjectID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	documents := []gin.H{}
+	documentNames := map[string]string{}
+	for rows.Next() {
+		var id, filename string
+		if err := rows.Scan(&id, &filename); err == nil {
+			documents = append(documents, gin.H{"id": id, "filename": filename})
+			documentNames[id] = filename
+		}
+	}
+	rows.Close()
+	if documentID != "" {
+		if _, ok := documentNames[documentID]; !ok {
+			c.JSON(400, gin.H{"error": "selected document is not ready or does not belong to this subject"})
+			return
+		}
+	}
+
+	type topicScore struct {
+		value string
+		score int
+	}
+	topicMap := map[string]topicScore{}
+	camelCase := regexp.MustCompile(`([a-z])([A-Z])`)
+	nonTopicChars := regexp.MustCompile(`[^a-z0-9]+`)
+	numericTopicPart := regexp.MustCompile(`^[0-9]+$`)
+	addTopic := func(value string, score int) {
+		value = camelCase.ReplaceAllString(value, `$1 $2`)
+		value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+		if len(value) < 3 || len(value) > 60 || len(strings.Fields(value)) > 7 {
+			return
+		}
+		key := nonTopicChars.ReplaceAllString(strings.ToLower(value), " ")
+		key = strings.ReplaceAll(key, "left most", "leftmost")
+		key = strings.ReplaceAll(key, "right most", "rightmost")
+		keyParts := []string{}
+		for _, part := range strings.Fields(key) {
+			if part == "given" || part == "solution" || part == "example" || part == "page" ||
+				part == "modified" || numericTopicPart.MatchString(part) {
+				continue
+			}
+			keyParts = append(keyParts, part)
+		}
+		key = strings.Join(keyParts, " ")
+		blocked := map[string]bool{"example": true, "output": true, "input": true, "code": true,
+			"question": true, "answer": true, "document": true, "properties": true, "remember": true,
+			"given": true, "generate": true, "solution": true, "rules": true}
+		if len(key) < 3 || blocked[key] || strings.HasPrefix(key, "generate ") {
+			return
+		}
+		if old, ok := topicMap[key]; !ok || score > old.score {
+			topicMap[key] = topicScore{value: value, score: score}
+		}
+	}
+
+	if documentID != "" {
+		name := documentNames[documentID]
+		base := strings.TrimSuffix(name, filepath.Ext(name))
+		base = strings.NewReplacer("_", " ", "-", " ").Replace(base)
+		addTopic(base, 80)
+	}
+
+	args := []interface{}{subjectID}
+	docFilter := ""
+	if documentID != "" {
+		docFilter = " AND document_id=$2"
+		args = append(args, documentID)
+	}
+	generatedRows, err := db.Query(context.Background(),
+		`SELECT topic, count(*) FROM generated_questions
+		 WHERE subject_id=$1`+docFilter+` AND COALESCE(topic,'')<>''
+		 GROUP BY topic`, args...)
+	if err == nil {
+		for generatedRows.Next() {
+			var topic string
+			var count int
+			if generatedRows.Scan(&topic, &count) == nil {
+				addTopic(topic, 100+count)
+			}
+		}
+		generatedRows.Close()
+	}
+
+	chunkQuery := `SELECT content FROM document_chunks WHERE subject_id=$1`
+	if documentID != "" {
+		chunkQuery += ` AND document_id=$2`
+	}
+	chunkQuery += ` ORDER BY chunk_index LIMIT 30`
+	chunkRows, err := db.Query(context.Background(), chunkQuery, args...)
+	labelPattern := regexp.MustCompile(`([A-Z][A-Za-z0-9() /&+_-]{2,40}?):`)
+	if err == nil {
+		for chunkRows.Next() {
+			var content string
+			if chunkRows.Scan(&content) != nil {
+				continue
+			}
+			for _, match := range labelPattern.FindAllStringSubmatch(content, -1) {
+				if len(match) > 1 {
+					addTopic(match[1], topicMap[strings.ToLower(match[1])].score+1)
+				}
+			}
+		}
+		chunkRows.Close()
+	}
+
+	topics := make([]topicScore, 0, len(topicMap))
+	for _, item := range topicMap {
+		topics = append(topics, item)
+	}
+	sort.Slice(topics, func(i, j int) bool {
+		if topics[i].score == topics[j].score {
+			return strings.ToLower(topics[i].value) < strings.ToLower(topics[j].value)
+		}
+		return topics[i].score > topics[j].score
+	})
+	values := []string{}
+	for i, item := range topics {
+		if i >= 30 {
+			break
+		}
+		values = append(values, item.value)
+	}
+	c.JSON(200, gin.H{"documents": documents, "topics": values})
+}
+
 // deleteDocument removes a learning material: the DB row (cascades chunks),
 // the file on disk, and its vectors in Milvus (via the RAG service).
 func deleteDocument(c *gin.Context) {
@@ -177,6 +317,7 @@ func generateQuestions(c *gin.Context) {
 	subjectID := c.Param("id")
 	var req struct {
 		Topic        string `json:"topic"`
+		DocumentID   string `json:"document_id"`
 		Distribution []struct {
 			Type       string `json:"type"`
 			Difficulty string `json:"difficulty"`
@@ -192,6 +333,7 @@ func generateQuestions(c *gin.Context) {
 	body, _ := json.Marshal(gin.H{
 		"subject_id":   subjectID,
 		"topic":        req.Topic,
+		"document_id":  req.DocumentID,
 		"distribution": req.Distribution,
 	})
 	client := http.Client{Timeout: 10 * time.Minute}

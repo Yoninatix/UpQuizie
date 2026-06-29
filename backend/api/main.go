@@ -79,6 +79,7 @@ func main() {
 
 		// Learning materials (file upload -> RAG processing)
 		auth.GET("/subjects/:id/documents", listDocuments)
+		auth.GET("/subjects/:id/generation-options", requireRole("educator", "admin"), generationOptions)
 		auth.POST("/subjects/:id/documents", requireRole("educator", "admin"), uploadDocument)
 		auth.DELETE("/subjects/:id/documents/:docId", requireRole("educator", "admin"), deleteDocument)
 
