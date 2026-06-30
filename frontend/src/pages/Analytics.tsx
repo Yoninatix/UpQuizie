@@ -1,7 +1,8 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import Layout, { Icon } from "../components/Layout";
-import { api, Subject } from "../api";
+import { api, Exam, Subject } from "../api";
 
 interface AnalyticsData {
   topics: { topic: string; correct: number; total: number; accuracy: number; weak: boolean }[];
@@ -11,6 +12,7 @@ interface AnalyticsData {
 export default function Analytics() {
   const [subjectId, setSubjectId] = useState("");
   const { data: subjects = [] } = useQuery({ queryKey: ["subjects"], queryFn: () => api.get<Subject[]>("/subjects") });
+  const { data: exams = [] } = useQuery({ queryKey: ["exams"], queryFn: () => api.get<Exam[]>("/exams") });
   const sid = subjectId || subjects[0]?.id || "";
   const { data } = useQuery({
     queryKey: ["analytics", sid],
@@ -19,6 +21,7 @@ export default function Analytics() {
   });
   const topics = data?.topics || [];
   const weak = topics.filter((t) => t.weak);
+  const recentExams = exams.filter((exam) => !sid || exam.subject_id === sid).slice(0, 5);
 
   return (
     <Layout title="Analytics Dashboard">
@@ -29,7 +32,9 @@ export default function Analytics() {
         </select>
       </div>
 
-      {/* Summary cards */}
+      <h3 className="font-headline text-lg text-primary mb-3 flex items-center gap-2">
+        <Icon name="trending_up" className="text-secondary" /> Quick Student Performance
+      </h3>
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
         <Card label="Average Score" value={data?.average_score != null ? `${data.average_score.toFixed(1)}%` : "—"} icon="trending_up" />
         <Card label="Tracked Topics" value={`${topics.length}`} icon="topic" />
@@ -39,6 +44,32 @@ export default function Analytics() {
           <p className="text-sm leading-relaxed">
             {weak[0] ? `Students are struggling most with “${weak[0].topic}”. Consider review material.` : "No weak areas detected yet."}
           </p>
+        </div>
+      </div>
+
+      {/* Recent exams */}
+      <div className="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden mb-6">
+        <div className="px-6 py-4 border-b border-outline-variant flex justify-between items-center">
+          <h3 className="font-headline text-lg text-primary">Recent Exams</h3>
+          <Link to="/exams" className="text-secondary text-sm font-semibold hover:underline">View all exams</Link>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead><tr className="bg-surface-container-low text-xs text-outline">
+              <th className="px-6 py-3">Exam Title</th><th className="px-6 py-3">Subject</th><th className="px-6 py-3">Points</th><th className="px-6 py-3">Status</th>
+            </tr></thead>
+            <tbody className="divide-y divide-outline-variant">
+              {recentExams.map((exam) => (
+                <tr key={exam.id}>
+                  <td className="px-6 py-4 font-medium text-on-surface">{exam.title}</td>
+                  <td className="px-6 py-4 text-on-surface-variant text-sm">{exam.subject}</td>
+                  <td className="px-6 py-4 text-on-surface-variant text-sm">{exam.total_points}</td>
+                  <td className="px-6 py-4"><span className="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-xs font-semibold capitalize">{exam.status}</span></td>
+                </tr>
+              ))}
+              {recentExams.length === 0 && <tr><td colSpan={4} className="px-6 py-5 text-on-surface-variant">No exams yet for this subject.</td></tr>}
+            </tbody>
+          </table>
         </div>
       </div>
 

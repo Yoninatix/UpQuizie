@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Layout, { Icon } from "../components/Layout";
 import { api, Subject, Question } from "../api";
@@ -31,9 +31,11 @@ interface Draft {
   answer: any;
 }
 
-export default function ReviewQuestions() {
+interface ReviewQuestionsProps { embedded?: boolean; subjectId?: string }
+
+export default function ReviewQuestions({ embedded = false, subjectId: controlledSubjectId }: ReviewQuestionsProps = {}) {
   const qc = useQueryClient();
-  const [subjectId, setSubjectId] = useState("");
+  const [localSubjectId, setLocalSubjectId] = useState("");
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [examTitle, setExamTitle] = useState("AI-Generated Exam");
@@ -43,19 +45,25 @@ export default function ReviewQuestions() {
     queryKey: ["subjects"],
     queryFn: () => api.get<Subject[]>("/subjects"),
   });
-  const sid = subjectId || subjects[0]?.id || "";
+  const sid = controlledSubjectId || localSubjectId || subjects[0]?.id || "";
 
   const { data: pending = [] } = useQuery({
     queryKey: ["generated", sid],
     queryFn: () => api.get<Question[]>(`/subjects/${sid}/generated?status=pending`),
     enabled: !!sid,
   });
+  const { data: approved = [] } = useQuery({
+    queryKey: ["generated", sid, "approved"],
+    queryFn: () => api.get<Question[]>(`/subjects/${sid}/generated?status=approved`),
+    enabled: !!sid,
+  });
+  const questions = useMemo(() => [...pending, ...approved], [pending, approved]);
 
   // Seed editable drafts from loaded questions.
   useEffect(() => {
     setDrafts((prev) => {
       const next = { ...prev };
-      for (const q of pending) {
+      for (const q of questions) {
         if (!next[q.id]) {
           next[q.id] = {
             prompt: asText(q.prompt),
@@ -67,7 +75,9 @@ export default function ReviewQuestions() {
       }
       return next;
     });
-  }, [pending]);
+  }, [questions]);
+
+  useEffect(() => { setSelected({}); }, [sid]);
 
   const setDraft = (id: string, patch: Partial<Draft>) =>
     setDrafts((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
@@ -88,6 +98,39 @@ export default function ReviewQuestions() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["generated", sid] }),
   });
 
+  const approveAll = useMutation({
+    mutationFn: async () => {
+      await Promise.all(pending.map((question) => {
+        const draft = drafts[question.id] || {
+          prompt: asText(question.prompt), points: question.points ?? 1,
+          options: question.options ?? null, answer: question.answer ?? {},
+        };
+        return api.patch(`/generated/${question.id}`, {
+          status: "approved", prompt: draft.prompt, points: Number(draft.points) || 1,
+          options: draft.options, answer: draft.answer,
+        });
+      }));
+      return pending.map((question) => question.id);
+    },
+    onSuccess: (ids) => {
+      setSelected((current) => ({ ...current, ...Object.fromEntries(ids.map((id) => [id, true])) }));
+      setMsg(`Approved ${ids.length} question(s). They are selected and ready to add to an exam.`);
+      qc.invalidateQueries({ queryKey: ["generated", sid] });
+    },
+    onError: (error: Error) => setMsg(`Approval failed: ${error.message}`),
+  });
+
+  const deleteAll = useMutation({
+    mutationFn: () => api.del<{ deleted: number }>(`/subjects/${sid}/generated`),
+    onSuccess: (result) => {
+      setDrafts({});
+      setSelected({});
+      setMsg(`Deleted ${result.deleted} generated question(s). Questions already added to exams were not affected.`);
+      qc.invalidateQueries({ queryKey: ["generated", sid] });
+    },
+    onError: (error: Error) => setMsg(`Delete failed: ${error.message}`),
+  });
+
   const createExam = useMutation({
     mutationFn: (ids: string[]) =>
       api.post<{ id: string; questions_added: number }>("/exams", {
@@ -105,8 +148,8 @@ export default function ReviewQuestions() {
 
   const chosen = Object.keys(selected).filter((k) => selected[k]);
 
-  return (
-    <Layout title="Review Questions">
+  const content = (
+    <>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
           <h3 className="font-headline text-xl text-primary">Review Generated Questions</h3>
@@ -114,10 +157,12 @@ export default function ReviewQuestions() {
             Edit, save, and select questions to build an exam.
           </p>
         </div>
-        <select value={sid} onChange={(e) => setSubjectId(e.target.value)}
-          className="border border-outline-variant rounded-lg px-3 py-2 bg-white">
-          {subjects.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
-        </select>
+        {!controlledSubjectId && (
+          <select value={sid} onChange={(e) => setLocalSubjectId(e.target.value)}
+            className="border border-outline-variant rounded-lg px-3 py-2 bg-white">
+            {subjects.map((s) => <option key={s.id} value={s.id}>{s.code} — {s.name}</option>)}
+          </select>
+        )}
       </div>
 
       {/* Sticky build bar */}
@@ -125,6 +170,18 @@ export default function ReviewQuestions() {
         <input value={examTitle} onChange={(e) => setExamTitle(e.target.value)}
           placeholder="Exam title"
           className="flex-1 border border-outline-variant rounded-lg px-3 py-2 bg-white outline-none focus:border-secondary" />
+        <button onClick={() => approveAll.mutate()} disabled={approveAll.isPending || pending.length === 0}
+          className="px-5 py-2 border border-secondary text-secondary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
+          {approveAll.isPending ? "Approving…" : `Approve all (${pending.length})`}
+        </button>
+        <button onClick={() => {
+          if (confirm(`Delete all ${questions.length} generated question(s) for this subject? This cannot be undone.`)) {
+            deleteAll.mutate();
+          }
+        }} disabled={deleteAll.isPending || questions.length === 0}
+          className="px-5 py-2 border border-error text-error rounded-lg font-semibold whitespace-nowrap hover:bg-error-container disabled:opacity-50">
+          {deleteAll.isPending ? "Deleting…" : `Delete all (${questions.length})`}
+        </button>
         <button onClick={() => createExam.mutate(chosen)} disabled={createExam.isPending || chosen.length === 0}
           className="px-6 py-2 bg-primary text-on-primary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
           Create exam ({chosen.length})
@@ -133,7 +190,7 @@ export default function ReviewQuestions() {
       {msg && <p className="text-sm text-secondary mb-4">{msg}</p>}
 
       <div className="space-y-6">
-        {pending.map((q, idx) => {
+        {questions.map((q, idx) => {
           const d = drafts[q.id] || { prompt: asText(q.prompt), points: q.points, options: q.options, answer: q.answer };
           const isSel = !!selected[q.id];
           return (
@@ -164,6 +221,9 @@ export default function ReviewQuestions() {
                           {asText(q.topic)}
                         </span>
                       )}
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${q.status === "approved" ? "bg-green-100 text-green-800" : "bg-orange-100 text-orange-800"}`}>
+                        {q.status || "pending"}
+                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -218,12 +278,13 @@ export default function ReviewQuestions() {
           );
         })}
 
-        {pending.length === 0 && (
-          <p className="text-on-surface-variant">No pending questions. Generate some on the Generate page.</p>
+        {questions.length === 0 && (
+          <p className="text-on-surface-variant">No generated questions yet. Use the generator above.</p>
         )}
       </div>
-    </Layout>
+    </>
   );
+  return embedded ? content : <Layout title="Review Questions">{content}</Layout>;
 }
 
 // ---- per-type answer editor ----
@@ -233,19 +294,20 @@ function AnswerEditor({ q, draft, setDraft }: { q: Question; draft: Draft; setDr
     const correct = draft.answer?.correct_index ?? 0;
     return (
       <div className="space-y-1.5">
-        <label className="text-[11px] font-bold uppercase tracking-wider text-outline">Options</label>
+        <AiAnswerHeading label="Options" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {opts.map((o, i) => (
             <label key={i}
-              className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${i === correct ? "border-secondary bg-secondary-container/30" : "border-outline-variant bg-surface"}`}>
+              className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer ${i === correct ? "border-primary/40 bg-primary/5 text-primary ring-1 ring-primary/20" : "border-outline-variant bg-surface"}`}>
               <input type="radio" name={`ans-${q.id}`} checked={i === correct}
-                onChange={() => setDraft({ answer: { correct_index: i } })} className="text-secondary" />
+                onChange={() => setDraft({ answer: { correct_index: i } })} className="accent-primary" />
               <input value={o}
                 onChange={(e) => {
                   const copy = [...opts]; copy[i] = e.target.value;
                   setDraft({ options: copy });
                 }}
                 className="flex-1 bg-transparent border-none p-0 text-sm focus:ring-0" />
+              {i === correct && <span className="text-[10px] uppercase tracking-wide font-bold bg-primary text-on-primary px-2 py-1 rounded-full">AI answer</span>}
             </label>
           ))}
         </div>
@@ -257,14 +319,15 @@ function AnswerEditor({ q, draft, setDraft }: { q: Question; draft: Draft; setDr
     const correct = draft.answer?.correct === true;
     return (
       <div className="space-y-1.5">
-        <label className="text-[11px] font-bold uppercase tracking-wider text-outline">Correct Answer</label>
+        <AiAnswerHeading label="Correct Answer" />
         <div className="flex gap-3">
           {[true, false].map((v) => (
             <label key={String(v)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer ${correct === v ? "border-secondary bg-secondary-container/30 text-secondary" : "border-outline-variant"}`}>
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg border cursor-pointer ${correct === v ? "border-primary/40 bg-primary/5 text-primary ring-1 ring-primary/20" : "border-outline-variant"}`}>
               <input type="radio" name={`ans-${q.id}`} checked={correct === v}
-                onChange={() => setDraft({ answer: { correct: v } })} className="text-secondary" />
+                onChange={() => setDraft({ answer: { correct: v } })} className="accent-primary" />
               <span className="font-semibold">{v ? "True" : "False"}</span>
+              {correct === v && <span className="text-[10px] uppercase tracking-wide font-bold bg-primary text-on-primary px-2 py-1 rounded-full">AI answer</span>}
             </label>
           ))}
         </div>
@@ -276,10 +339,10 @@ function AnswerEditor({ q, draft, setDraft }: { q: Question; draft: Draft; setDr
     const accepted: string[] = Array.isArray(draft.answer?.accepted) ? draft.answer.accepted.map(asText) : [];
     return (
       <div className="space-y-1.5">
-        <label className="text-[11px] font-bold uppercase tracking-wider text-outline">Accepted Answer(s) — comma separated</label>
+        <AiAnswerHeading label="Accepted Answer(s) — comma separated" />
         <input value={accepted.join(", ")}
           onChange={(e) => setDraft({ answer: { accepted: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) } })}
-          className="w-full bg-surface border border-outline-variant rounded-lg p-2.5 text-sm outline-none focus:border-secondary" />
+          className="w-full bg-primary/5 border border-primary/40 text-primary rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
       </div>
     );
   }
@@ -287,12 +350,16 @@ function AnswerEditor({ q, draft, setDraft }: { q: Question; draft: Draft; setDr
   if (q.type === "matching") {
     const left: string[] = Array.isArray(draft.options?.left) ? draft.options.left.map(asText) : [];
     const right: string[] = Array.isArray(draft.options?.right) ? draft.options.right.map(asText) : [];
+    const pairs: number[][] = Array.isArray(draft.answer?.pairs) ? draft.answer.pairs : [];
     return (
       <div className="space-y-1.5">
-        <label className="text-[11px] font-bold uppercase tracking-wider text-outline">Pairs</label>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div className="space-y-2">{left.map((l, i) => <div key={i} className="p-2 bg-surface-container rounded">{l}</div>)}</div>
-          <div className="space-y-2">{right.map((r, i) => <div key={i} className="p-2 bg-secondary-container/40 rounded">{r}</div>)}</div>
+        <AiAnswerHeading label="Correct Pairs" />
+        <div className="space-y-2 text-sm">
+          {pairs.map(([leftIndex, rightIndex], index) => (
+            <div key={index} className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 p-3 rounded-lg border border-primary/40 bg-primary/5 text-primary">
+              <span className="font-semibold">{left[leftIndex]}</span><Icon name="arrow_forward" className="text-[18px]" /><span>{right[rightIndex]}</span>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -302,13 +369,24 @@ function AnswerEditor({ q, draft, setDraft }: { q: Question; draft: Draft; setDr
     const rubric = asText(draft.answer?.rubric);
     return (
       <div className="space-y-1.5">
-        <label className="text-[11px] font-bold uppercase tracking-wider text-outline">Grading Rubric</label>
+        <AiAnswerHeading label="Grading Rubric" />
         <textarea rows={2} value={rubric}
           onChange={(e) => setDraft({ answer: { rubric: e.target.value } })}
-          className="w-full bg-surface border border-outline-variant rounded-lg p-3 text-sm outline-none focus:border-secondary" />
+          className="w-full bg-primary/5 border border-primary/40 text-primary rounded-lg p-3 text-sm outline-none focus:ring-2 focus:ring-primary/20" />
       </div>
     );
   }
 
   return null;
+}
+
+function AiAnswerHeading({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[11px] font-bold uppercase tracking-wider text-outline">{label}</span>
+      <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
+        <Icon name="auto_awesome" className="text-[13px]" /> AI-provided answer
+      </span>
+    </div>
+  );
 }

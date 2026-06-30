@@ -156,6 +156,18 @@ func listGenerated(c *gin.Context) {
 	c.JSON(200, out)
 }
 
+// deleteAllGenerated clears the selected subject's generated-question bank.
+// Questions already copied into exam_questions remain intact.
+func deleteAllGenerated(c *gin.Context) {
+	result, err := db.Exec(context.Background(),
+		`DELETE FROM generated_questions WHERE subject_id=$1`, c.Param("id"))
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"deleted": result.RowsAffected()})
+}
+
 // updateGenerated approves/rejects or edits a generated question.
 func updateGenerated(c *gin.Context) {
 	var req struct {

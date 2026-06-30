@@ -5,7 +5,6 @@ import Register from "./pages/Register";
 import StudentDashboard from "./pages/StudentDashboard";
 import EducatorDashboard from "./pages/EducatorDashboard";
 import Materials from "./pages/Materials";
-import ReviewQuestions from "./pages/ReviewQuestions";
 import Subjects from "./pages/Subjects";
 import ExamsList from "./pages/ExamsList";
 import ExamSessions from "./pages/ExamSessions";
@@ -43,7 +42,7 @@ export default function App() {
       <Route path="/materials" element={<Protected><Materials /></Protected>} />
       <Route path="/subjects/:id/materials" element={<Protected><Materials /></Protected>} />
       <Route path="/subjects/:id/enroll" element={<Protected><Enrollment /></Protected>} />
-      <Route path="/review" element={<Protected><ReviewQuestions /></Protected>} />
+      <Route path="/review" element={<Navigate to="/educator#review-questions" replace />} />
       <Route path="/analytics" element={<Protected><Analytics /></Protected>} />
       <Route path="/sessions" element={<Protected><ExamSessions /></Protected>} />
       <Route path="/score-review" element={<Protected><ScoreReview /></Protected>} />

@@ -84,11 +84,16 @@ Open **http://localhost:8080**.
    (pdf-parse / mammoth / JSZip / Tesseract OCR), splits it into **500-word chunks
    with 50-word overlap**, embeds each with `nomic-embed-text` (768-dim), stores the
    vectors in **Milvus** (IVF_FLAT, cosine) and the chunk text in `document_chunks`.
-3. **Generate** — On the **Generate** page the educator picks a subject, optional
-   topic, and a question distribution. The RAG service `/generate` embeds the topic,
-   retrieves the most relevant chunks from Milvus, prompts **gemma3:1b** for strict
-   JSON questions, validates + deduplicates them, and writes them to
-   `generated_questions` (status `pending`) with a `source_ref` grounding quote.
+3. **Retrieve + generate** — On the **Generate** page the educator picks a subject,
+   optional topic, and a question distribution. The RAG service embeds that query
+   once (with a bounded in-memory cache for repeats), performs a cosine top-k search
+   in Milvus, augments one batched **gemma3:1b** prompt with the retrieved chunks,
+   and generates strict JSON questions. Deterministic guards reject any question
+   whose citation is not an exact uploaded-document excerpt, whose choices are not
+   found in retrieved chunks, or whose correct answer is absent from its evidence.
+   Valid questions are linked to their source document and written to
+   `generated_questions`; invalid model output uses a mechanically grounded document
+   cloze fallback rather than general knowledge or placeholders.
 4. **Review** — On the **Review Questions** page the educator approves/rejects
    pending questions and builds an exam from the approved ones (`exam_questions`).
 5. **Administer** — Students take published exams; objective items (MCQ /

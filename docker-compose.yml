@@ -39,8 +39,8 @@ services:
       UPLOAD_DIR: "/app/uploads"
     volumes:
       - uploads:/app/uploads
-    expose:
-      - "8000"
+    ports:
+      - "8000:8000"
     restart: unless-stopped
 
   rag:
@@ -63,6 +63,8 @@ services:
       EMBED_MODEL: "${EMBED_MODEL:-nomic-embed-text}"
       LLM_MODEL: "${LLM_MODEL:-gemma3:1b}"
       EMBED_DIM: "${EMBED_DIM:-768}"
+      RAG_TOP_K: "${RAG_TOP_K:-2}"
+      RAG_QUERY_CACHE_SIZE: "${RAG_QUERY_CACHE_SIZE:-100}"
       UPLOAD_DIR: "/app/uploads"
     volumes:
       - uploads:/app/uploads
