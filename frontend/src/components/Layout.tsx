@@ -11,8 +11,7 @@ interface NavItem { label: string; icon: string; to: string }
 const navByRole: Record<string, NavItem[]> = {
   student: [
     { label: "Dashboard", icon: "dashboard", to: "/student" },
-    { label: "Subjects", icon: "library_books", to: "/subjects" },
-    { label: "Exams", icon: "assignment", to: "/exams" },
+    { label: "Calendar", icon: "calendar_month", to: "/calendar" },
     { label: "Performance", icon: "monitoring", to: "/performance" },
     { label: "Settings", icon: "settings", to: "/settings" },
   ],

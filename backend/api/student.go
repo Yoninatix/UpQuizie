@@ -14,7 +14,7 @@ func studentPerformance(c *gin.Context) {
 
 	// Recent attempts
 	rows, err := db.Query(ctx,
-		`SELECT a.id, e.title, COALESCE(s.name,''), a.score, a.total_points, a.status, a.submitted_at
+		`SELECT a.id, e.id, e.title, COALESCE(s.name,''), a.score, a.total_points, a.status, a.submitted_at
 		 FROM student_exam_attempts a
 		 JOIN exams e ON e.id = a.exam_id
 		 LEFT JOIN subjects s ON s.id = e.subject_id
@@ -29,12 +29,12 @@ func studentPerformance(c *gin.Context) {
 	attempts := []gin.H{}
 	attemptByID := map[string]gin.H{}
 	for rows.Next() {
-		var id, title, subject, status string
+		var id, examID, title, subject, status string
 		var score, total *int
 		var submitted *time.Time
-		rows.Scan(&id, &title, &subject, &score, &total, &status, &submitted)
+		rows.Scan(&id, &examID, &title, &subject, &score, &total, &status, &submitted)
 		attempt := gin.H{
-			"id": id, "title": title, "subject": subject, "score": score,
+			"id": id, "exam_id": examID, "title": title, "subject": subject, "score": score,
 			"total_points": total, "status": status, "submitted_at": submitted,
 			"topic_mastery": []gin.H{}, "weak_topics": []gin.H{},
 		}

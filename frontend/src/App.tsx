@@ -14,6 +14,7 @@ import TakeExam from "./pages/TakeExam";
 import Results from "./pages/Results";
 import Analytics from "./pages/Analytics";
 import StudentPerformance from "./pages/StudentPerformance";
+import StudentCalendar from "./pages/StudentCalendar";
 import Settings from "./pages/Settings";
 import AdminUsers from "./pages/AdminUsers";
 import SubjectDetail from "./pages/SubjectDetail";
@@ -49,6 +50,7 @@ export default function App() {
       <Route path="/review" element={<Navigate to="/educator#review-questions" replace />} />
       <Route path="/analytics" element={<Protected><Analytics /></Protected>} />
       <Route path="/performance" element={<Protected><StudentPerformance /></Protected>} />
+      <Route path="/calendar" element={<Protected><StudentCalendar /></Protected>} />
       <Route path="/settings" element={<Protected><Settings /></Protected>} />
       <Route path="/sessions" element={<Protected><ExamSessions /></Protected>} />
       <Route path="/score-review" element={<Protected><ScoreReview /></Protected>} />

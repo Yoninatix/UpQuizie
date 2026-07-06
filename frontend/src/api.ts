@@ -75,6 +75,7 @@ export interface Exam {
   live_state: "waiting" | "started" | "ended";
   access_code?: string | null;
   live_started_at?: string | null;
+  due_at?: string | null;
 }
 export interface Question {
   id: string;

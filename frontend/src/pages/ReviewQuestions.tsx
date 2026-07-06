@@ -44,6 +44,7 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
   const [examTitle, setExamTitle] = useState("");
   const [examMode, setExamMode] = useState<"take_home" | "live">("take_home");
   const [durationMin, setDurationMin] = useState(60);
+  const [dueAt, setDueAt] = useState("");
   const [accessCode, setAccessCode] = useState("");
   const [orderMode, setOrderMode] = useState<"current" | "type" | "shuffle">("current");
   const [shuffledIds, setShuffledIds] = useState<string[]>([]);
@@ -147,6 +148,7 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
         title: examTitle,
         exam_mode: examMode,
         duration_min: durationMin,
+        due_at: dueAt ? new Date(dueAt).toISOString() : null,
         access_code: examMode === "live" ? accessCode.trim() : "",
         publish: true,
         question_ids: ids,
@@ -220,6 +222,11 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
         <label className="flex items-center gap-2 text-sm text-on-surface-variant">
           <input type="number" min={1} value={durationMin} onChange={(e) => setDurationMin(Math.max(1, Number(e.target.value)))}
             className="w-20 border border-outline-variant rounded-lg px-3 py-2 bg-white" /> min
+        </label>
+        <label className="flex items-center gap-2 text-sm text-on-surface-variant">
+          Due
+          <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)}
+            className="border border-outline-variant rounded-lg px-3 py-2 bg-white" />
         </label>
         {examMode === "live" && (
           <input value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="Live access code"

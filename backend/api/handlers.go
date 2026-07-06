@@ -207,7 +207,7 @@ func listExams(c *gin.Context) {
 	role, _ := c.Get("role")
 	userID, _ := c.Get("userID")
 	q := `SELECT e.id, e.title, e.duration_min, e.total_points, e.status, COALESCE(s.name,''), e.subject_id,
-	             e.exam_mode, e.live_state, e.access_code, e.live_started_at
+	             e.exam_mode, e.live_state, e.access_code, e.live_started_at, e.due_at
 	      FROM exams e LEFT JOIN subjects s ON s.id=e.subject_id`
 	args := []interface{}{}
 	if role == "student" {
@@ -226,17 +226,17 @@ func listExams(c *gin.Context) {
 	for rows.Next() {
 		var id, title, status, subject, subjectID, examMode, liveState string
 		var accessCode *string
-		var liveStartedAt *time.Time
+		var liveStartedAt, dueAt *time.Time
 		var dur, pts int
 		rows.Scan(&id, &title, &dur, &pts, &status, &subject, &subjectID,
-			&examMode, &liveState, &accessCode, &liveStartedAt)
+			&examMode, &liveState, &accessCode, &liveStartedAt, &dueAt)
 		if role == "student" {
 			accessCode = nil
 		}
 		out = append(out, gin.H{"id": id, "title": title, "duration_min": dur,
 			"total_points": pts, "status": status, "subject": subject, "subject_id": subjectID,
 			"exam_mode": examMode, "live_state": liveState, "access_code": accessCode,
-			"live_started_at": liveStartedAt})
+			"live_started_at": liveStartedAt, "due_at": dueAt})
 	}
 	c.JSON(200, out)
 }
@@ -244,13 +244,14 @@ func listExams(c *gin.Context) {
 // createExam builds an exam from approved generated questions.
 func createExam(c *gin.Context) {
 	var req struct {
-		SubjectID   string   `json:"subject_id" binding:"required"`
-		Title       string   `json:"title" binding:"required"`
-		DurationMin int      `json:"duration_min"`
-		ExamMode    string   `json:"exam_mode"`
-		AccessCode  string   `json:"access_code"`
-		Publish     bool     `json:"publish"`
-		QuestionIDs []string `json:"question_ids"`
+		SubjectID   string     `json:"subject_id" binding:"required"`
+		Title       string     `json:"title" binding:"required"`
+		DurationMin int        `json:"duration_min"`
+		ExamMode    string     `json:"exam_mode"`
+		AccessCode  string     `json:"access_code"`
+		DueAt       *time.Time `json:"due_at"`
+		Publish     bool       `json:"publish"`
+		QuestionIDs []string   `json:"question_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -275,10 +276,10 @@ func createExam(c *gin.Context) {
 
 	var examID string
 	err := db.QueryRow(ctx,
-		`INSERT INTO exams (subject_id,title,duration_min,exam_mode,access_code,created_by,status)
-		 VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,CASE WHEN $7 THEN 'published'::exam_status ELSE 'draft'::exam_status END)
+		`INSERT INTO exams (subject_id,title,duration_min,exam_mode,access_code,created_by,status,due_at)
+		 VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,CASE WHEN $7 THEN 'published'::exam_status ELSE 'draft'::exam_status END,$8)
 		 RETURNING id`, req.SubjectID, req.Title, req.DurationMin, req.ExamMode, req.AccessCode,
-		userID, req.Publish).Scan(&examID)
+		userID, req.Publish, req.DueAt).Scan(&examID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
