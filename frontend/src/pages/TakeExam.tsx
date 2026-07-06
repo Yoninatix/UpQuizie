@@ -20,10 +20,11 @@ export default function TakeExam() {
   const [code, setCode] = useState("");
   const [codeErr, setCodeErr] = useState("");
   const [started, setStarted] = useState(false);
+  const [waiting, setWaiting] = useState(false);
 
   useEffect(() => {
     if (!id) return;
-    api.get<{ requires_code: boolean }>(`/exams/${id}/access`)
+    api.get<{ requires_code: boolean; exam_mode: "take_home" | "live"; live_state: string }>(`/exams/${id}/access`)
       .then((r) => { setNeedCode(r.requires_code); if (!r.requires_code) begin(); })
       .catch(() => { setNeedCode(false); begin(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -33,18 +34,23 @@ export default function TakeExam() {
   // attempt, resumes the caller's own in-progress one (page refresh), or
   // rejects with 409 + attempt_id when the student has already submitted —
   // in that case we send them straight to their results instead of retaking it.
-  async function begin() {
-    if (!id || started) return;
-    setStarted(true);
+  async function begin(entryCode = "", polling = false) {
+    if (!id || (started && !polling)) return;
+    if (!polling) setStarted(true);
     try {
-      const a = await api.post<{ attempt_id: string; started_at?: string }>(`/exams/${id}/attempts`);
-      const ex = await api.get<Exam>(`/exams/${id}`);
+      const a = await api.post<{ attempt_id: string; started_at?: string | null; waiting?: boolean }>(`/exams/${id}/attempts`, { code: entryCode });
+      const ex = exam || await api.get<Exam>(`/exams/${id}`);
       setExam(ex);
+      setAttemptId(a.attempt_id);
+      if (a.waiting) {
+        setWaiting(true);
+        return;
+      }
+      setWaiting(false);
       const durationSec = (ex.duration_min || 60) * 60;
       const elapsed = a.started_at ? Math.floor((Date.now() - new Date(a.started_at).getTime()) / 1000) : 0;
       setSecondsLeft(Math.max(0, durationSec - elapsed));
       setQuestions(await api.get<Question[]>(`/exams/${id}/questions`));
-      setAttemptId(a.attempt_id);
     } catch (e) {
       const err = e as ApiError;
       if (err.body?.attempt_id) {
@@ -60,11 +66,19 @@ export default function TakeExam() {
     try {
       await api.post(`/exams/${id}/verify`, { code });
       setNeedCode(false);
-      begin();
+      begin(code);
     } catch (e: any) {
       setCodeErr(e.message || "Invalid code");
     }
   }
+
+  // A live-exam lobby polls until the teacher releases the class.
+  useEffect(() => {
+    if (!waiting || !id) return;
+    const poll = setInterval(() => begin(code, true), 2000);
+    return () => clearInterval(poll);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting, id, code]);
 
   // Timer
   useEffect(() => {
@@ -160,6 +174,24 @@ export default function TakeExam() {
           <button onClick={() => nav("/exams")} className="w-full bg-primary text-on-primary py-3 rounded-lg font-semibold">
             Back to Exams
           </button>
+        </div>
+      </Layout>
+    );
+  }
+
+  if (waiting && exam) {
+    return (
+      <Layout title="Live Quiz Lobby">
+        <div className="max-w-lg mx-auto bg-surface-container-lowest border border-outline-variant rounded-2xl p-10 mt-10 text-center">
+          <div className="w-16 h-16 mx-auto bg-secondary-container text-on-secondary-container rounded-full flex items-center justify-center mb-5">
+            <Icon name="group" className="text-[34px]" />
+          </div>
+          <h2 className="font-headline text-2xl text-primary mb-2">You are in the lobby</h2>
+          <p className="font-semibold text-on-surface mb-2">{exam.title}</p>
+          <p className="text-on-surface-variant mb-6">Your teacher can now see that you joined. The quiz and timer will open for everyone when the teacher starts the session.</p>
+          <div className="flex items-center justify-center gap-2 text-secondary font-semibold">
+            <span className="w-2.5 h-2.5 rounded-full bg-secondary animate-pulse" /> Waiting for teacher to start…
+          </div>
         </div>
       </Layout>
     );

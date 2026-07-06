@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Layout, { Icon } from "../components/Layout";
@@ -12,18 +12,9 @@ export default function Subjects() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
-  const [dept, setDept] = useState("All Departments");
   const [form, setForm] = useState({ code: "", name: "", department: "", description: "" });
 
   const { data: subjects = [] } = useQuery({ queryKey: ["subjects"], queryFn: () => api.get<Subject[]>("/subjects") });
-
-  const departments = useMemo(
-    () => ["All Departments", ...Array.from(new Set(subjects.map((s) => s.department).filter(Boolean) as string[]))],
-    [subjects]
-  );
-  const shown = subjects.filter((s) => dept === "All Departments" || s.department === dept);
-  const totalStudents = subjects.reduce((a, s) => a + (s.students || 0), 0);
-  const totalActiveExams = subjects.reduce((a, s) => a + (s.active_exams || 0), 0);
 
   const create = useMutation({
     mutationFn: () => api.post("/subjects", form),
@@ -55,19 +46,6 @@ export default function Subjects() {
         )}
       </div>
 
-      {/* Stats ribbon */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <Stat icon="school" label="Total Subjects" value={subjects.length} tint="bg-primary-fixed text-primary" />
-        <Stat icon="group" label="Total Students" value={totalStudents} tint="bg-secondary-fixed text-secondary" />
-        <Stat icon="assignment" label="Active Exams" value={totalActiveExams} tint="bg-tertiary-fixed text-tertiary" />
-        <div className="flex items-center gap-2">
-          <select value={dept} onChange={(e) => setDept(e.target.value)}
-            className="flex-1 bg-surface-container-lowest border border-outline-variant rounded-lg p-3 text-sm focus:ring-secondary">
-            {departments.map((d) => <option key={d}>{d}</option>)}
-          </select>
-        </div>
-      </div>
-
       {showForm && (
         <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }}
           className="bg-surface-container-lowest border border-outline-variant rounded-xl p-6 mb-6 grid grid-cols-2 gap-4">
@@ -82,7 +60,7 @@ export default function Subjects() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {shown.map((s, i) => {
+        {subjects.map((s, i) => {
           const archived = s.status === "archived";
           return (
             <div key={s.id}
@@ -144,17 +122,5 @@ export default function Subjects() {
         )}
       </div>
     </Layout>
-  );
-}
-
-function Stat({ icon, label, value, tint }: { icon: string; label: string; value: number; tint: string }) {
-  return (
-    <div className="bg-surface-container-lowest border border-outline-variant p-4 rounded-xl flex items-center gap-4">
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${tint}`}><Icon name={icon} /></div>
-      <div>
-        <p className="text-xs text-on-surface-variant uppercase">{label}</p>
-        <p className="font-headline text-2xl font-bold text-primary">{value}</p>
-      </div>
-    </div>
   );
 }

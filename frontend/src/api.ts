@@ -71,6 +71,11 @@ export interface Exam {
   status: string;
   subject?: string;
   subject_id?: string;
+  exam_mode: "take_home" | "live";
+  live_state: "waiting" | "started" | "ended";
+  access_code?: string | null;
+  live_started_at?: string | null;
+  due_at?: string | null;
 }
 export interface Question {
   id: string;
@@ -90,19 +95,20 @@ export interface MonitorStudent {
   name: string;
   identifier: string;
   attempt_id: string | null;
-  status: "not_started" | "in_progress" | "completed" | "needs_review";
+  status: "not_started" | "waiting" | "in_progress" | "completed" | "needs_review";
   answered_count: number;
   question_count: number;
   score: number | null;
   total_points: number | null;
+  joined_at: string | null;
   started_at: string | null;
   submitted_at: string | null;
   last_seen_at: string | null;
   focused: boolean | null;
 }
 export interface ExamMonitor {
-  exam: { id: string; title: string; status: string; duration_min: number; total_points: number; question_count: number };
-  summary: { enrolled: number; not_started: number; in_progress: number; submitted: number };
+  exam: { id: string; title: string; status: string; duration_min: number; total_points: number; question_count: number; exam_mode: "take_home" | "live"; live_state: "waiting" | "started" | "ended"; access_code: string | null; live_started_at: string | null };
+  summary: { enrolled: number; not_started: number; waiting: number; in_progress: number; submitted: number };
   students: MonitorStudent[];
   now: string;
 }

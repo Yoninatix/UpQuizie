@@ -95,7 +95,10 @@ CREATE TABLE exams (
     title         TEXT NOT NULL,
     duration_min  INT NOT NULL DEFAULT 60,
     total_points  INT NOT NULL DEFAULT 0,
+    exam_mode     TEXT NOT NULL DEFAULT 'take_home' CHECK (exam_mode IN ('take_home', 'live')),
     access_code   TEXT,
+    live_state    TEXT NOT NULL DEFAULT 'waiting' CHECK (live_state IN ('waiting', 'started', 'ended')),
+    live_started_at TIMESTAMPTZ,
     status        exam_status NOT NULL DEFAULT 'draft',
     created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -129,7 +132,8 @@ CREATE TABLE student_exam_attempts (
     answered_count INT NOT NULL DEFAULT 0,       -- live progress reported via heartbeat
     last_seen_at   TIMESTAMPTZ,                  -- last heartbeat while taking the exam
     focused        BOOLEAN NOT NULL DEFAULT TRUE, -- exam tab focus (live proctoring signal)
-    started_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    joined_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at     TIMESTAMPTZ,
     submitted_at   TIMESTAMPTZ,
     UNIQUE (exam_id, student_id)
 );

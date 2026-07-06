@@ -96,6 +96,7 @@ func main() {
 		auth.GET("/exams/:id", getExam)
 		auth.GET("/exams/:id/questions", listExamQuestions)
 		auth.POST("/exams/:id/publish", requireRole("educator", "admin"), publishExam)
+		auth.POST("/exams/:id/activation", requireRole("educator", "admin"), setExamActivation)
 		auth.DELETE("/exams/:id", requireRole("educator", "admin"), deleteExam)
 
 		// Attempts & scoring
@@ -103,9 +104,13 @@ func main() {
 		auth.POST("/attempts/:aid/submit", submitAttempt)
 		auth.POST("/attempts/:aid/heartbeat", heartbeat)
 		auth.GET("/attempts/:aid", getAttempt)
+		auth.GET("/grading/submissions", requireRole("educator", "admin"), listGradingSubmissions)
+		auth.GET("/attempts/:aid/review", requireRole("educator", "admin"), reviewAttempt)
+		auth.PATCH("/attempts/:aid/answers/:answerId", requireRole("educator", "admin"), updateAnswerScore)
 
 		// Live exam-session monitoring (educator)
 		auth.GET("/exams/:id/monitor", requireRole("educator", "admin"), examMonitor)
+		auth.POST("/exams/:id/start", requireRole("educator", "admin"), startLiveExam)
 
 		// Student self-service
 		auth.GET("/me/performance", studentPerformance)

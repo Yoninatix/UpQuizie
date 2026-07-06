@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Layout, { Icon } from "../components/Layout";
 import { api, Exam, Question, Subject } from "../api";
 import { useAuth } from "../auth";
@@ -9,6 +9,7 @@ export default function SubjectDetail() {
   const { id = "" } = useParams();
   const { user } = useAuth();
   const nav = useNavigate();
+  const qc = useQueryClient();
   const [previewId, setPreviewId] = useState("");
 
   const { data: subjects = [] } = useQuery({
@@ -25,9 +26,23 @@ export default function SubjectDetail() {
     enabled: !!previewId,
   });
 
-  const subject = subjects.find((item) => item.id === id);
-  const published = exams.filter((exam) => exam.subject_id === id && exam.status === "published");
   const canManage = user?.role === "educator" || user?.role === "admin";
+  const subject = subjects.find((item) => item.id === id);
+  const subjectExams = exams.filter((exam) => exam.subject_id === id);
+  const published = subjectExams.filter((exam) => exam.status === "published");
+  const visibleExams = canManage ? subjectExams : published;
+  const activation = useMutation({
+    mutationFn: ({ examId, active }: { examId: string; active: boolean }) => api.post(`/exams/${examId}/activation`, { active }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["exams"] }),
+  });
+  const remove = useMutation({
+    mutationFn: (examId: string) => api.del(`/exams/${examId}`),
+    onSuccess: (_, examId) => {
+      if (previewId === examId) setPreviewId("");
+      qc.invalidateQueries({ queryKey: ["exams"] });
+      qc.invalidateQueries({ queryKey: ["subjects"] });
+    },
+  });
 
   return (
     <Layout title={subject?.name || "Subject"}>
@@ -56,7 +71,7 @@ export default function SubjectDetail() {
 
       <div className="flex items-center gap-1 border-b border-outline-variant mb-7">
         <span className="px-5 py-3 border-b-2 border-secondary text-secondary font-semibold flex items-center gap-2">
-          <Icon name="quiz" className="text-[20px]" /> Published Quizzes
+          <Icon name="quiz" className="text-[20px]" /> {canManage ? "Subject Quizzes" : "Published Quizzes"}
         </span>
         <Link to={`/subjects/${id}/materials`}
           className="px-5 py-3 text-on-surface-variant font-semibold flex items-center gap-2 hover:text-secondary">
@@ -71,7 +86,7 @@ export default function SubjectDetail() {
 
       {isLoading ? (
         <p className="text-on-surface-variant">Loading quizzes...</p>
-      ) : published.length === 0 ? (
+      ) : visibleExams.length === 0 ? (
         <div className="border border-dashed border-outline-variant bg-surface-container-lowest rounded-2xl p-12 text-center">
           <div className="w-14 h-14 mx-auto rounded-full bg-surface-container-high flex items-center justify-center mb-4">
             <Icon name="quiz" className="text-3xl text-on-surface-variant" />
@@ -82,7 +97,7 @@ export default function SubjectDetail() {
         </div>
       ) : (
         <div className="space-y-4">
-          {published.map((exam) => {
+          {visibleExams.map((exam) => {
             const open = previewId === exam.id;
             return (
               <article key={exam.id} className="bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
@@ -93,7 +108,9 @@ export default function SubjectDetail() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <h2 className="font-headline text-lg font-bold text-primary">{exam.title}</h2>
-                      <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase">Published</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${exam.status === "published" ? "bg-green-100 text-green-800" : "bg-surface-container-high text-on-surface-variant"}`}>
+                        {exam.status === "published" ? "Active" : "Deactivated"}
+                      </span>
                     </div>
                     <div className="flex flex-wrap gap-4 text-sm text-on-surface-variant">
                       <span className="flex items-center gap-1"><Icon name="schedule" className="text-[17px]" /> {exam.duration_min} minutes</span>
@@ -105,10 +122,24 @@ export default function SubjectDetail() {
                       Take quiz <Icon name="arrow_forward" className="text-[19px]" />
                     </Link>
                   ) : (
-                    <button onClick={() => setPreviewId(open ? "" : exam.id)}
-                      className="border border-outline-variant px-5 py-2.5 rounded-lg font-semibold text-secondary flex items-center justify-center gap-2 hover:bg-surface-container-low">
-                      <Icon name={open ? "visibility_off" : "visibility"} className="text-[19px]" /> {open ? "Close preview" : "View quiz"}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button onClick={() => setPreviewId(open ? "" : exam.id)}
+                        className="border border-outline-variant px-4 py-2.5 rounded-lg font-semibold text-secondary flex items-center justify-center gap-2 hover:bg-surface-container-low">
+                        <Icon name={open ? "visibility_off" : "visibility"} className="text-[19px]" /> {open ? "Close" : "Preview"}
+                      </button>
+                      <button onClick={() => activation.mutate({ examId: exam.id, active: exam.status !== "published" })}
+                        disabled={activation.isPending}
+                        className="border border-secondary px-4 py-2.5 rounded-lg font-semibold text-secondary flex items-center justify-center gap-2 disabled:opacity-50">
+                        <Icon name={exam.status === "published" ? "pause_circle" : "play_circle"} className="text-[19px]" />
+                        {exam.status === "published" ? "Deactivate" : "Activate"}
+                      </button>
+                      <button onClick={() => {
+                        if (confirm(`Delete quiz \"${exam.title}\"? All student attempts and results for it will also be deleted. This cannot be undone.`)) remove.mutate(exam.id);
+                      }} disabled={remove.isPending}
+                        className="border border-error px-4 py-2.5 rounded-lg font-semibold text-error flex items-center justify-center gap-2 disabled:opacity-50">
+                        <Icon name="delete" className="text-[19px]" /> Delete
+                      </button>
+                    </div>
                   )}
                 </div>
 

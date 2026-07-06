@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 import Layout, { Icon } from "../components/Layout";
 import { api, Subject, Question } from "../api";
 
@@ -23,6 +24,7 @@ const typeLabel: Record<string, string> = {
   matching: "Matching Type",
   essay: "Essay",
 };
+const typeOrder = ["mcq", "true_false", "fill_blank", "matching", "essay"];
 
 interface Draft {
   prompt: string;
@@ -35,10 +37,18 @@ interface ReviewQuestionsProps { embedded?: boolean; subjectId?: string }
 
 export default function ReviewQuestions({ embedded = false, subjectId: controlledSubjectId }: ReviewQuestionsProps = {}) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [localSubjectId, setLocalSubjectId] = useState("");
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [examTitle, setExamTitle] = useState("");
+  const [examMode, setExamMode] = useState<"take_home" | "live">("take_home");
+  const [durationMin, setDurationMin] = useState(60);
+  const [dueAt, setDueAt] = useState("");
+  const [accessCode, setAccessCode] = useState("");
+  const [orderMode, setOrderMode] = useState<"current" | "type" | "shuffle">("current");
+  const [shuffledIds, setShuffledIds] = useState<string[]>([]);
+  const [showPreview, setShowPreview] = useState(false);
   const [msg, setMsg] = useState("");
 
   const { data: subjects = [] } = useQuery({
@@ -136,17 +146,51 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
       api.post<{ id: string; questions_added: number }>("/exams", {
         subject_id: sid,
         title: examTitle,
+        exam_mode: examMode,
+        duration_min: durationMin,
+        due_at: dueAt ? new Date(dueAt).toISOString() : null,
+        access_code: examMode === "live" ? accessCode.trim() : "",
+        publish: true,
         question_ids: ids,
       }),
     onSuccess: (r) => {
-      setMsg(`Created exam with ${r.questions_added} question(s). Publish it on the Exams page.`);
+      setMsg(`${examMode === "live" ? "Live" : "Take-home"} quiz published with ${r.questions_added} question(s).`);
       setSelected({});
       qc.invalidateQueries({ queryKey: ["generated", sid] });
       qc.invalidateQueries({ queryKey: ["exams"] });
+      if (examMode === "live") {
+        navigate(`/exams/${r.id}/monitor`);
+      }
     },
   });
 
   const chosen = Object.keys(selected).filter((k) => selected[k]);
+  const orderedQuestions = useMemo(() => {
+    const included = questions.filter((question) => selected[question.id]);
+    if (orderMode === "type") {
+      return [...included].sort((a, b) => {
+        const ai = typeOrder.indexOf(a.type);
+        const bi = typeOrder.indexOf(b.type);
+        return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+      });
+    }
+    if (orderMode === "shuffle") {
+      const rank = new Map(shuffledIds.map((questionId, index) => [questionId, index]));
+      return [...included].sort((a, b) => (rank.get(a.id) ?? 9999) - (rank.get(b.id) ?? 9999));
+    }
+    return included;
+  }, [questions, selected, orderMode, shuffledIds]);
+  const orderedIds = orderedQuestions.map((question) => question.id);
+
+  const shuffleQuestions = () => {
+    const ids = questions.filter((question) => selected[question.id]).map((question) => question.id);
+    for (let index = ids.length - 1; index > 0; index--) {
+      const swapWith = Math.floor(Math.random() * (index + 1));
+      [ids[index], ids[swapWith]] = [ids[swapWith], ids[index]];
+    }
+    setShuffledIds(ids);
+    setOrderMode("shuffle");
+  };
 
   const content = (
     <>
@@ -166,13 +210,60 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
       </div>
 
       {/* Sticky build bar */}
-      <div className="flex items-center gap-3 bg-surface-container-lowest border border-outline-variant rounded-xl p-4 mb-6">
+      <div className="flex flex-wrap items-center gap-3 bg-surface-container-lowest border border-outline-variant rounded-xl p-4 mb-6">
         <input value={examTitle} onChange={(e) => setExamTitle(e.target.value)}
           placeholder="Exam title"
-          className="flex-1 border border-outline-variant rounded-lg px-3 py-2 bg-white outline-none focus:border-secondary" />
+          className="min-w-52 flex-1 border border-outline-variant rounded-lg px-3 py-2 bg-white outline-none focus:border-secondary" />
+        <select value={examMode} onChange={(e) => setExamMode(e.target.value as "take_home" | "live")}
+          className="border border-outline-variant rounded-lg px-3 py-2 bg-white">
+          <option value="take_home">Take-home quiz</option>
+          <option value="live">Live quiz</option>
+        </select>
+        <label className="flex items-center gap-2 text-sm text-on-surface-variant">
+          <input type="number" min={1} value={durationMin} onChange={(e) => setDurationMin(Math.max(1, Number(e.target.value)))}
+            className="w-20 border border-outline-variant rounded-lg px-3 py-2 bg-white" /> min
+        </label>
+        <label className="flex items-center gap-2 text-sm text-on-surface-variant">
+          Due
+          <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)}
+            className="border border-outline-variant rounded-lg px-3 py-2 bg-white" />
+        </label>
+        {examMode === "live" && (
+          <input value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="Live access code"
+            className="w-44 border border-outline-variant rounded-lg px-3 py-2 bg-white outline-none focus:border-secondary" />
+        )}
         <button onClick={() => approveAll.mutate()} disabled={approveAll.isPending || pending.length === 0}
           className="px-5 py-2 border border-secondary text-secondary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
           {approveAll.isPending ? "Approving…" : `Approve all (${pending.length})`}
+        </button>
+        <button
+          onClick={() => setSelected(Object.fromEntries(questions.map((question) => [question.id, true])))}
+          disabled={questions.length === 0 || chosen.length === questions.length}
+          className="px-5 py-2 border border-primary text-primary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
+          Include all ({questions.length})
+        </button>
+        <button onClick={() => setSelected({})} disabled={chosen.length === 0}
+          className="px-5 py-2 border border-outline-variant text-on-surface-variant rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
+          Uninclude all
+        </button>
+        <select value={orderMode} onChange={(event) => {
+          const mode = event.target.value as "current" | "type" | "shuffle";
+          if (mode === "shuffle") shuffleQuestions(); else setOrderMode(mode);
+        }} disabled={chosen.length === 0}
+          className="border border-outline-variant rounded-lg px-3 py-2 bg-white font-semibold text-sm disabled:opacity-50">
+          <option value="current">Current order</option>
+          <option value="type">Group by question type</option>
+          <option value="shuffle">Shuffle questions</option>
+        </select>
+        {orderMode === "shuffle" && (
+          <button onClick={shuffleQuestions} disabled={chosen.length < 2}
+            className="px-4 py-2 border border-secondary text-secondary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50 flex items-center gap-1">
+            <Icon name="shuffle" className="text-[18px]" /> Reshuffle
+          </button>
+        )}
+        <button onClick={() => setShowPreview(true)} disabled={chosen.length === 0}
+          className="px-5 py-2 border border-primary text-primary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50 flex items-center gap-1">
+          <Icon name="visibility" className="text-[18px]" /> Preview exam
         </button>
         <button onClick={() => {
           if (confirm(`Delete all ${questions.length} generated question(s) for this subject? This cannot be undone.`)) {
@@ -182,7 +273,8 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
           className="px-5 py-2 border border-error text-error rounded-lg font-semibold whitespace-nowrap hover:bg-error-container disabled:opacity-50">
           {deleteAll.isPending ? "Deleting…" : `Delete all (${questions.length})`}
         </button>
-        <button onClick={() => createExam.mutate(chosen)} disabled={createExam.isPending || chosen.length === 0}
+        <button onClick={() => createExam.mutate(orderedIds)}
+          disabled={createExam.isPending || chosen.length === 0 || !examTitle.trim() || (examMode === "live" && !accessCode.trim())}
           className="px-6 py-2 bg-primary text-on-primary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
           Create exam ({chosen.length})
         </button>
@@ -282,9 +374,74 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
           <p className="text-on-surface-variant">No generated questions yet. Use the generator above.</p>
         )}
       </div>
+
+      {showPreview && (
+        <div className="fixed inset-0 z-50 bg-primary/35 backdrop-blur-sm p-4 md:p-8 overflow-y-auto" onClick={() => setShowPreview(false)}>
+          <div className="max-w-4xl mx-auto bg-surface-container-lowest rounded-2xl shadow-2xl border border-outline-variant overflow-hidden"
+            onClick={(event) => event.stopPropagation()}>
+            <div className="sticky top-0 z-10 bg-surface-container-lowest border-b border-outline-variant px-6 py-5 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-widest text-secondary font-bold">Exam preview</p>
+                <h2 className="font-headline text-2xl font-bold text-primary">{examTitle.trim() || "Untitled exam"}</h2>
+                <p className="text-sm text-on-surface-variant mt-1">{orderedQuestions.length} questions · {durationMin} minutes · {orderMode === "type" ? "Grouped by type" : orderMode === "shuffle" ? "Shuffled order" : "Current order"}</p>
+              </div>
+              <button onClick={() => setShowPreview(false)} className="w-10 h-10 rounded-full hover:bg-surface-container-high flex items-center justify-center text-on-surface-variant">
+                <Icon name="close" />
+              </button>
+            </div>
+            <div className="p-6 md:p-8 space-y-5 bg-surface-container-low">
+              {orderedQuestions.map((question, index) => {
+                const draft = drafts[question.id] || { prompt: asText(question.prompt), points: question.points, options: question.options, answer: question.answer };
+                const startsSection = orderMode === "type" && (index === 0 || orderedQuestions[index - 1].type !== question.type);
+                const sectionNumber = new Set(orderedQuestions.slice(0, index + 1).map((item) => item.type)).size;
+                return <div key={question.id}>
+                  {startsSection && (
+                    <div className="flex items-center gap-3 mb-3 mt-2">
+                      <span className="bg-primary text-on-primary px-3 py-1 rounded-lg text-sm font-bold">Test {sectionNumber}</span>
+                      <h3 className="font-headline text-lg font-bold text-primary">{typeLabel[question.type] || question.type}</h3>
+                      <div className="h-px bg-outline-variant flex-1" />
+                    </div>
+                  )}
+                  <article className="bg-white border border-outline-variant rounded-xl p-6">
+                    <div className="flex items-start gap-4">
+                      <span className="w-8 h-8 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-bold text-sm shrink-0">{index + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between gap-3"><p className="font-semibold text-on-surface leading-6">{draft.prompt}</p><span className="text-xs text-on-surface-variant whitespace-nowrap">{draft.points} pts</span></div>
+                        <PreviewOptions question={question} options={draft.options} />
+                      </div>
+                    </div>
+                  </article>
+                </div>;
+              })}
+            </div>
+            <div className="sticky bottom-0 bg-surface-container-lowest border-t border-outline-variant px-6 py-4 flex justify-end gap-3">
+              {orderMode === "shuffle" && <button onClick={shuffleQuestions} className="border border-secondary text-secondary px-4 py-2 rounded-lg font-semibold flex items-center gap-2"><Icon name="shuffle" /> Reshuffle</button>}
+              <button onClick={() => setShowPreview(false)} className="bg-primary text-on-primary px-6 py-2 rounded-lg font-semibold">Done previewing</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
   return embedded ? content : <Layout title="Review Questions">{content}</Layout>;
+}
+
+function PreviewOptions({ question, options }: { question: Question; options: any }) {
+  if (question.type === "mcq" && Array.isArray(options)) {
+    return <div className="grid sm:grid-cols-2 gap-2 mt-4">{options.map((option, index) =>
+      <div key={index} className="border border-outline-variant rounded-lg px-3 py-2 text-sm text-on-surface-variant flex gap-2"><span className="font-bold">{String.fromCharCode(65 + index)}.</span>{asText(option)}</div>
+    )}</div>;
+  }
+  if (question.type === "true_false") {
+    return <div className="flex gap-2 mt-4"><span className="border border-outline-variant rounded-lg px-5 py-2 text-sm">True</span><span className="border border-outline-variant rounded-lg px-5 py-2 text-sm">False</span></div>;
+  }
+  if (question.type === "matching" && options?.left && options?.right) {
+    return <div className="grid grid-cols-2 gap-3 mt-4 text-sm"><div className="space-y-1">{options.left.map((item: unknown, index: number) => <p key={index} className="bg-surface-container-low rounded px-3 py-2">{index + 1}. {asText(item)}</p>)}</div><div className="space-y-1">{options.right.map((item: unknown, index: number) => <p key={index} className="bg-surface-container-low rounded px-3 py-2">{String.fromCharCode(65 + index)}. {asText(item)}</p>)}</div></div>;
+  }
+  if (["fill_blank", "short_answer", "essay"].includes(question.type)) {
+    return <div className="mt-4 border-b border-outline-variant h-8 text-xs text-on-surface-variant">Student answer</div>;
+  }
+  return null;
 }
 
 // ---- per-type answer editor ----
