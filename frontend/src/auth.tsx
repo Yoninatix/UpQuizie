@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api, User } from "./api";
 import { useAuthStore } from "./store";
 
@@ -14,6 +15,7 @@ interface RegisterData {
 // HTTP-only cookie via GET /me on first mount.
 export function useAuth() {
   const { user, ready, setUser, setReady } = useAuthStore();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (ready) return;
@@ -26,6 +28,7 @@ export function useAuth() {
 
   async function login(email: string, password: string) {
     const res = await api.post<{ user: User }>("/auth/login", { email, password });
+    queryClient.clear();
     setUser(res.user);
     setReady(true);
     return res.user;
@@ -33,6 +36,7 @@ export function useAuth() {
 
   async function register(data: RegisterData) {
     const res = await api.post<{ user: User }>("/auth/register", data);
+    queryClient.clear();
     setUser(res.user);
     setReady(true);
     return res.user;
@@ -44,6 +48,7 @@ export function useAuth() {
     } catch {
       /* ignore */
     }
+    queryClient.clear();
     setUser(null);
   }
 

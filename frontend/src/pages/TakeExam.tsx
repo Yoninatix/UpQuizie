@@ -38,7 +38,7 @@ export default function TakeExam() {
     if (!id || (started && !polling)) return;
     if (!polling) setStarted(true);
     try {
-      const a = await api.post<{ attempt_id: string; started_at?: string | null; waiting?: boolean }>(`/exams/${id}/attempts`, { code: entryCode });
+      const a = await api.post<{ attempt_id: string; started_at?: string | null; ends_at?: string | null; waiting?: boolean }>(`/exams/${id}/attempts`, { code: entryCode });
       const ex = exam || await api.get<Exam>(`/exams/${id}`);
       setExam(ex);
       setAttemptId(a.attempt_id);
@@ -48,8 +48,10 @@ export default function TakeExam() {
       }
       setWaiting(false);
       const durationSec = (ex.duration_min || 60) * 60;
-      const elapsed = a.started_at ? Math.floor((Date.now() - new Date(a.started_at).getTime()) / 1000) : 0;
-      setSecondsLeft(Math.max(0, durationSec - elapsed));
+      const remaining = ex.exam_mode === "live" && a.ends_at
+        ? Math.floor((new Date(a.ends_at).getTime() - Date.now()) / 1000)
+        : durationSec - (a.started_at ? Math.floor((Date.now() - new Date(a.started_at).getTime()) / 1000) : 0);
+      setSecondsLeft(Math.max(0, remaining));
       setQuestions(await api.get<Question[]>(`/exams/${id}/questions`));
     } catch (e) {
       const err = e as ApiError;

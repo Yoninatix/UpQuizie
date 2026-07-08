@@ -60,8 +60,23 @@ function SubjectMaterials({ subjectId, subjects }: { subjectId: string; subjects
   });
 
   const upload = useMutation({
-    mutationFn: (file: File) => api.upload(`/subjects/${subjectId}/documents`, file),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["documents", subjectId] }),
+    mutationFn: async (files: File[]) => {
+      const results = await Promise.allSettled(
+        files.map((file) => api.upload(`/subjects/${subjectId}/documents`, file)),
+      );
+      const failedFiles = results
+        .map((result, index) => ({ result, file: files[index] }))
+        .filter(({ result }) => result.status === "rejected")
+        .map(({ file }) => file.name);
+
+      if (failedFiles.length > 0) {
+        throw new Error(
+          `${files.length - failedFiles.length} of ${files.length} uploaded. Failed: ${failedFiles.join(", ")}`,
+        );
+      }
+      return results;
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["documents", subjectId] }),
   });
 
   const remove = useMutation({
@@ -101,19 +116,21 @@ function SubjectMaterials({ subjectId, subjects }: { subjectId: string; subjects
           <Icon name="cloud_upload" className="text-4xl" />
         </div>
         <h3 className="font-headline text-xl text-on-surface mb-1">
-          {upload.isPending ? "Uploading & processing…" : "Click to upload a document"}
+          {upload.isPending ? "Uploading documents..." : "Click to upload documents"}
         </h3>
         <p className="text-sm text-on-surface-variant max-w-md">
-          PDF, DOCX, PPTX, XLSX, ODT, HTML, RTF, TXT, MD, CSV. Text is extracted, chunked, embedded, and indexed for RAG.
+          Select one or multiple files. PDF, DOCX, PPTX, XLSX, ODT, HTML, RTF, TXT, MD, and CSV are supported.
         </p>
         <input
           ref={fileRef}
           type="file"
+          multiple
+          disabled={upload.isPending}
           className="hidden"
           accept=".pdf,.docx,.pptx,.xlsx,.odt,.html,.htm,.rtf,.txt,.md,.csv,.png,.jpg,.jpeg"
           onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) upload.mutate(f);
+            const files = Array.from(e.target.files || []);
+            if (files.length > 0) upload.mutate(files);
             e.target.value = "";
           }}
         />

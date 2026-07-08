@@ -437,9 +437,11 @@ func startAttempt(c *gin.Context) {
 	_ = c.ShouldBindJSON(&req)
 
 	var examMode, liveState, examStatus string
+	var durationMin int
 	var accessCode *string
-	if err := db.QueryRow(ctx, `SELECT exam_mode, live_state, status, access_code FROM exams WHERE id=$1`, examID).
-		Scan(&examMode, &liveState, &examStatus, &accessCode); err != nil {
+	var liveStartedAt *time.Time
+	if err := db.QueryRow(ctx, `SELECT exam_mode, live_state, status, access_code, duration_min, live_started_at FROM exams WHERE id=$1`, examID).
+		Scan(&examMode, &liveState, &examStatus, &accessCode, &durationMin, &liveStartedAt); err != nil {
 		c.JSON(404, gin.H{"error": "exam not found"})
 		return
 	}
@@ -450,6 +452,16 @@ func startAttempt(c *gin.Context) {
 	if accessCode != nil && *accessCode != "" && req.Code != *accessCode {
 		c.JSON(403, gin.H{"error": "Invalid access code."})
 		return
+	}
+	var liveEndsAt *time.Time
+	if examMode == "live" && liveStartedAt != nil {
+		endsAt := liveStartedAt.Add(time.Duration(durationMin) * time.Minute)
+		liveEndsAt = &endsAt
+		if !time.Now().Before(endsAt) {
+			db.Exec(ctx, `UPDATE exams SET live_state='ended' WHERE id=$1 AND live_state='started'`, examID)
+			c.JSON(409, gin.H{"error": "This live exam has ended."})
+			return
+		}
 	}
 
 	var id, status string
@@ -467,7 +479,7 @@ func startAttempt(c *gin.Context) {
 			now := time.Now()
 			db.QueryRow(ctx, `UPDATE student_exam_attempts SET started_at=$1 WHERE id=$2 RETURNING started_at`, now, id).Scan(&startedAt)
 		}
-		c.JSON(200, gin.H{"attempt_id": id, "started_at": startedAt, "waiting": waiting})
+		c.JSON(200, gin.H{"attempt_id": id, "started_at": startedAt, "waiting": waiting, "ends_at": liveEndsAt})
 		return
 	}
 
@@ -479,7 +491,7 @@ func startAttempt(c *gin.Context) {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(201, gin.H{"attempt_id": id, "started_at": startedAt, "waiting": !startNow})
+	c.JSON(201, gin.H{"attempt_id": id, "started_at": startedAt, "waiting": !startNow, "ends_at": liveEndsAt})
 }
 
 func submitAttempt(c *gin.Context) {

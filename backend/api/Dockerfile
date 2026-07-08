@@ -1,10 +1,9 @@
 FROM golang:1.22-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git
-COPY go.mod ./
-# Resolve deps and generate go.sum based on the source
+COPY go.mod go.sum ./
+RUN go mod download
 COPY *.go ./
-RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/upquizie-api .
 
 FROM alpine:3.20

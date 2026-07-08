@@ -198,6 +198,56 @@ func requireRole(roles ...string) gin.HandlerFunc {
 	}
 }
 
+// requireSubjectAccess prevents one account from reaching another teacher's
+// subject by manually changing the subject ID in the URL. Administrators can
+// access every subject, educators only subjects they own, and students only
+// subjects in which they are enrolled.
+func requireSubjectAccess() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, _ := c.Get("role")
+		userID, _ := c.Get("userID")
+		if role == "admin" {
+			c.Next()
+			return
+		}
+
+		var allowed bool
+		var err error
+		switch role {
+		case "educator":
+			err = db.QueryRow(context.Background(),
+				`SELECT EXISTS(SELECT 1 FROM subjects WHERE id=$1 AND educator_id=$2)`,
+				c.Param("id"), userID).Scan(&allowed)
+		case "student":
+			err = db.QueryRow(context.Background(),
+				`SELECT EXISTS(SELECT 1 FROM subject_enrollments WHERE subject_id=$1 AND student_id=$2)`,
+				c.Param("id"), userID).Scan(&allowed)
+		default:
+			allowed = false
+		}
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "could not verify subject access"})
+			return
+		}
+		if !allowed {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "this subject belongs to another teacher"})
+			return
+		}
+		c.Next()
+	}
+}
+
+func requireSubjectOwner() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, _ := c.Get("role")
+		if role != "educator" && role != "admin" {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+			return
+		}
+		requireSubjectAccess()(c)
+	}
+}
+
 func handleMe(c *gin.Context) {
 	userID, _ := c.Get("userID")
 	user, err := loadUser(userID)

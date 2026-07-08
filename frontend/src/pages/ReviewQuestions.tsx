@@ -142,7 +142,7 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
   });
 
   const createExam = useMutation({
-    mutationFn: (ids: string[]) =>
+    mutationFn: ({ ids, publish }: { ids: string[]; publish: boolean }) =>
       api.post<{ id: string; questions_added: number }>("/exams", {
         subject_id: sid,
         title: examTitle,
@@ -150,16 +150,17 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
         duration_min: durationMin,
         due_at: dueAt ? new Date(dueAt).toISOString() : null,
         access_code: examMode === "live" ? accessCode.trim() : "",
-        publish: true,
+        publish,
         question_ids: ids,
       }),
-    onSuccess: (r) => {
-      setMsg(`${examMode === "live" ? "Live" : "Take-home"} quiz published with ${r.questions_added} question(s).`);
+    onSuccess: (r, variables) => {
+      setMsg(`${examMode === "live" ? "Live" : "Take-home"} quiz ${variables.publish ? "published" : "saved as a draft"} with ${r.questions_added} question(s).`);
+      setShowPreview(false);
       setSelected({});
       qc.invalidateQueries({ queryKey: ["generated", sid] });
       qc.invalidateQueries({ queryKey: ["exams"] });
-      if (examMode === "live") {
-        navigate(`/exams/${r.id}/monitor`);
+      if (variables.publish) {
+        navigate(`/subjects/${sid}`);
       }
     },
     onError: (error: Error) => setMsg(`Exam creation failed: ${error.message}`),
@@ -210,29 +211,12 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
         )}
       </div>
 
-      {/* Sticky build bar */}
+      {/* Compact review actions. Exam settings live in the creation preview. */}
       <div className="flex flex-wrap items-center gap-3 bg-surface-container-lowest border border-outline-variant rounded-xl p-4 mb-6">
-        <input value={examTitle} onChange={(e) => setExamTitle(e.target.value)}
-          placeholder="Exam title"
-          className="min-w-52 flex-1 border border-outline-variant rounded-lg px-3 py-2 bg-white outline-none focus:border-secondary" />
-        <select value={examMode} onChange={(e) => setExamMode(e.target.value as "take_home" | "live")}
-          className="border border-outline-variant rounded-lg px-3 py-2 bg-white">
-          <option value="take_home">Take-home quiz</option>
-          <option value="live">Live quiz</option>
-        </select>
-        <label className="flex items-center gap-2 text-sm text-on-surface-variant">
-          <input type="number" min={1} value={durationMin} onChange={(e) => setDurationMin(Math.max(1, Number(e.target.value)))}
-            className="w-20 border border-outline-variant rounded-lg px-3 py-2 bg-white" /> min
-        </label>
-        <label className="flex items-center gap-2 text-sm text-on-surface-variant">
-          Due
-          <input type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)}
-            className="border border-outline-variant rounded-lg px-3 py-2 bg-white" />
-        </label>
-        {examMode === "live" && (
-          <input value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="Live access code"
-            className="w-44 border border-outline-variant rounded-lg px-3 py-2 bg-white outline-none focus:border-secondary" />
-        )}
+        <div className="mr-auto">
+          <p className="font-semibold text-on-surface">{chosen.length} question{chosen.length === 1 ? "" : "s"} included</p>
+          <p className="text-xs text-on-surface-variant">Select the questions you want, then review the exam.</p>
+        </div>
         <button onClick={() => approveAll.mutate()} disabled={approveAll.isPending || pending.length === 0}
           className="px-5 py-2 border border-secondary text-secondary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
           {approveAll.isPending ? "Approving…" : `Approve all (${pending.length})`}
@@ -247,25 +231,6 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
           className="px-5 py-2 border border-outline-variant text-on-surface-variant rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
           Uninclude all
         </button>
-        <select value={orderMode} onChange={(event) => {
-          const mode = event.target.value as "current" | "type" | "shuffle";
-          if (mode === "shuffle") shuffleQuestions(); else setOrderMode(mode);
-        }} disabled={chosen.length === 0}
-          className="border border-outline-variant rounded-lg px-3 py-2 bg-white font-semibold text-sm disabled:opacity-50">
-          <option value="current">Current order</option>
-          <option value="type">Group by question type</option>
-          <option value="shuffle">Shuffle questions</option>
-        </select>
-        {orderMode === "shuffle" && (
-          <button onClick={shuffleQuestions} disabled={chosen.length < 2}
-            className="px-4 py-2 border border-secondary text-secondary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50 flex items-center gap-1">
-            <Icon name="shuffle" className="text-[18px]" /> Reshuffle
-          </button>
-        )}
-        <button onClick={() => setShowPreview(true)} disabled={chosen.length === 0}
-          className="px-5 py-2 border border-primary text-primary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50 flex items-center gap-1">
-          <Icon name="visibility" className="text-[18px]" /> Preview exam
-        </button>
         <button onClick={() => {
           if (confirm(`Delete all ${questions.length} generated question(s) for this subject? This cannot be undone.`)) {
             deleteAll.mutate();
@@ -274,10 +239,9 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
           className="px-5 py-2 border border-error text-error rounded-lg font-semibold whitespace-nowrap hover:bg-error-container disabled:opacity-50">
           {deleteAll.isPending ? "Deleting…" : `Delete all (${questions.length})`}
         </button>
-        <button onClick={() => createExam.mutate(orderedIds)}
-          disabled={createExam.isPending || chosen.length === 0 || !examTitle.trim() || (examMode === "live" && !accessCode.trim())}
-          className="px-6 py-2 bg-primary text-on-primary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
-          Create exam ({chosen.length})
+        <button onClick={() => setShowPreview(true)} disabled={chosen.length === 0}
+          className="px-6 py-2 bg-primary text-on-primary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50 flex items-center gap-2">
+          <Icon name="arrow_forward" className="text-[18px]" /> Create exam
         </button>
       </div>
       {msg && <p className="text-sm text-secondary mb-4">{msg}</p>}
@@ -391,6 +355,62 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
               </button>
             </div>
             <div className="p-6 md:p-8 space-y-5 bg-surface-container-low">
+              <section className="bg-white border border-outline-variant rounded-xl p-5 space-y-4">
+                <div>
+                  <h3 className="font-headline text-lg font-bold text-primary">Exam details</h3>
+                  <p className="text-sm text-on-surface-variant">Review the complete question set below before saving or publishing.</p>
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <label className="space-y-1 text-sm font-semibold text-on-surface">
+                    Exam title
+                    <input value={examTitle} onChange={(event) => setExamTitle(event.target.value)} placeholder="Enter an exam title"
+                      className="w-full border border-outline-variant rounded-lg px-3 py-2 bg-white outline-none focus:border-secondary font-normal" />
+                  </label>
+                  <label className="space-y-1 text-sm font-semibold text-on-surface">
+                    Exam mode
+                    <select value={examMode} onChange={(event) => setExamMode(event.target.value as "take_home" | "live")}
+                      className="w-full border border-outline-variant rounded-lg px-3 py-2 bg-white font-normal">
+                      <option value="take_home">Take-home quiz</option>
+                      <option value="live">Live quiz</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1 text-sm font-semibold text-on-surface">
+                    Duration (minutes)
+                    <input type="number" min={1} value={durationMin} onChange={(event) => setDurationMin(Math.max(1, Number(event.target.value)))}
+                      className="w-full border border-outline-variant rounded-lg px-3 py-2 bg-white font-normal" />
+                  </label>
+                  <label className="space-y-1 text-sm font-semibold text-on-surface">
+                    Due date (optional)
+                    <input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)}
+                      className="w-full border border-outline-variant rounded-lg px-3 py-2 bg-white font-normal" />
+                  </label>
+                  {examMode === "live" && (
+                    <label className="space-y-1 text-sm font-semibold text-on-surface md:col-span-2">
+                      Live access code
+                      <input value={accessCode} onChange={(event) => setAccessCode(event.target.value)} placeholder="Enter an access code"
+                        className="w-full border border-outline-variant rounded-lg px-3 py-2 bg-white outline-none focus:border-secondary font-normal" />
+                    </label>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-outline-variant">
+                  <span className="text-sm font-semibold text-on-surface">Question order</span>
+                  <select value={orderMode} onChange={(event) => {
+                    const mode = event.target.value as "current" | "type" | "shuffle";
+                    if (mode === "shuffle") shuffleQuestions(); else setOrderMode(mode);
+                  }} className="border border-outline-variant rounded-lg px-3 py-2 bg-white text-sm">
+                    <option value="current">Current order</option>
+                    <option value="type">Sort by question type</option>
+                    <option value="shuffle">Shuffle questions</option>
+                  </select>
+                  {orderMode === "shuffle" && (
+                    <button onClick={shuffleQuestions} disabled={orderedQuestions.length < 2}
+                      className="border border-secondary text-secondary px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 disabled:opacity-50">
+                      <Icon name="shuffle" className="text-[18px]" /> Shuffle again
+                    </button>
+                  )}
+                  <span className="ml-auto text-sm text-on-surface-variant">{orderedQuestions.length} included questions</span>
+                </div>
+              </section>
               {orderedQuestions.map((question, index) => {
                 const draft = drafts[question.id] || { prompt: asText(question.prompt), points: question.points, options: question.options, answer: question.answer };
                 const startsSection = orderMode === "type" && (index === 0 || orderedQuestions[index - 1].type !== question.type);
@@ -415,9 +435,20 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
                 </div>;
               })}
             </div>
-            <div className="sticky bottom-0 bg-surface-container-lowest border-t border-outline-variant px-6 py-4 flex justify-end gap-3">
-              {orderMode === "shuffle" && <button onClick={shuffleQuestions} className="border border-secondary text-secondary px-4 py-2 rounded-lg font-semibold flex items-center gap-2"><Icon name="shuffle" /> Reshuffle</button>}
-              <button onClick={() => setShowPreview(false)} className="bg-primary text-on-primary px-6 py-2 rounded-lg font-semibold">Done previewing</button>
+            <div className="sticky bottom-0 bg-surface-container-lowest border-t border-outline-variant px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-on-surface-variant">Choose whether students can access this exam immediately.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setShowPreview(false)} disabled={createExam.isPending}
+                  className="border border-outline-variant text-on-surface-variant px-5 py-2 rounded-lg font-semibold disabled:opacity-50">Cancel</button>
+                <button onClick={() => createExam.mutate({ ids: orderedIds, publish: false })}
+                  disabled={createExam.isPending || !examTitle.trim() || (examMode === "live" && !accessCode.trim())}
+                  className="border border-primary text-primary px-5 py-2 rounded-lg font-semibold disabled:opacity-50">Save as draft</button>
+                <button onClick={() => createExam.mutate({ ids: orderedIds, publish: true })}
+                  disabled={createExam.isPending || !examTitle.trim() || (examMode === "live" && !accessCode.trim())}
+                  className="bg-primary text-on-primary px-6 py-2 rounded-lg font-semibold disabled:opacity-50">
+                  {createExam.isPending ? "Creating..." : "Create and publish"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

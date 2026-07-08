@@ -272,7 +272,7 @@ export default function ExamMonitor() {
         </div>
         <div className="divide-y divide-outline-variant">
           {students.map((s) => (
-            <StudentRow key={s.student_id} s={s} nowMs={nowMs} durationMin={exam.duration_min} />
+            <StudentRow key={s.student_id} s={s} nowMs={nowMs} durationMin={exam.duration_min} liveStartedAt={exam.live_started_at} />
           ))}
           {students.length === 0 && (
             <p className="px-6 py-8 text-on-surface-variant text-sm">
@@ -285,12 +285,12 @@ export default function ExamMonitor() {
   );
 }
 
-function StudentRow({ s, nowMs, durationMin }: { s: MonitorStudent; nowMs: number; durationMin: number }) {
+function StudentRow({ s, nowMs, durationMin, liveStartedAt }: { s: MonitorStudent; nowMs: number; durationMin: number; liveStartedAt: string | null }) {
   const sinceSeen = secsBetween(s.last_seen_at, nowMs);
   const online = s.status === "in_progress" && sinceSeen != null && sinceSeen <= ONLINE_WINDOW_SEC;
   const away = s.status === "in_progress" && s.focused === false;
 
-  const elapsed = secsBetween(s.started_at, nowMs);
+  const elapsed = secsBetween(liveStartedAt || s.started_at, nowMs);
   const remaining = elapsed != null ? durationMin * 60 - elapsed : null;
   const pct = s.question_count > 0 ? Math.round((s.answered_count / s.question_count) * 100) : 0;
   const scorePct =

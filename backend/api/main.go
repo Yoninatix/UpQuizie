@@ -77,22 +77,22 @@ func main() {
 		// Subjects & enrollment
 		auth.GET("/subjects", listSubjects)
 		auth.POST("/subjects", requireRole("educator", "admin"), createSubject)
-		auth.PATCH("/subjects/:id", requireRole("educator", "admin"), updateSubject)
-		auth.DELETE("/subjects/:id", requireRole("educator", "admin"), deleteSubject)
-		auth.GET("/subjects/:id/students", requireRole("educator", "admin"), listStudents)
-		auth.POST("/subjects/:id/enroll", requireRole("educator", "admin"), enrollStudent)
+		auth.PATCH("/subjects/:id", requireSubjectOwner(), updateSubject)
+		auth.DELETE("/subjects/:id", requireSubjectOwner(), deleteSubject)
+		auth.GET("/subjects/:id/students", requireSubjectOwner(), listStudents)
+		auth.POST("/subjects/:id/enroll", requireSubjectOwner(), enrollStudent)
 
 		// Learning materials (file upload -> RAG processing)
-		auth.GET("/subjects/:id/documents", listDocuments)
-		auth.GET("/subjects/:id/generation-options", requireRole("educator", "admin"), generationOptions)
-		auth.POST("/subjects/:id/documents", requireRole("educator", "admin"), uploadDocument)
-		auth.DELETE("/subjects/:id/documents/:docId", requireRole("educator", "admin"), deleteDocument)
+		auth.GET("/subjects/:id/documents", requireSubjectAccess(), listDocuments)
+		auth.GET("/subjects/:id/generation-options", requireSubjectOwner(), generationOptions)
+		auth.POST("/subjects/:id/documents", requireSubjectOwner(), uploadDocument)
+		auth.DELETE("/subjects/:id/documents/:docId", requireSubjectOwner(), deleteDocument)
 
 		// RAG question generation (async) + review/approval
-		auth.POST("/subjects/:id/generate", requireRole("educator", "admin"), generateQuestions)
+		auth.POST("/subjects/:id/generate", requireSubjectOwner(), generateQuestions)
 		auth.GET("/generation/:jobId", requireRole("educator", "admin"), getGenerationStatus)
-		auth.GET("/subjects/:id/generated", requireRole("educator", "admin"), listGenerated)
-		auth.DELETE("/subjects/:id/generated", requireRole("educator", "admin"), deleteAllGenerated)
+		auth.GET("/subjects/:id/generated", requireSubjectOwner(), listGenerated)
+		auth.DELETE("/subjects/:id/generated", requireSubjectOwner(), deleteAllGenerated)
 		auth.PATCH("/generated/:gid", requireRole("educator", "admin"), updateGenerated)
 
 		// Exams (built from approved questions)
@@ -123,7 +123,7 @@ func main() {
 		auth.POST("/exams/:id/verify", verifyExamAccess)
 
 		// Analytics
-		auth.GET("/subjects/:id/analytics", requireRole("educator", "admin"), subjectAnalytics)
+		auth.GET("/subjects/:id/analytics", requireSubjectOwner(), subjectAnalytics)
 
 		// Admin
 		auth.GET("/admin/users", requireRole("admin"), listUsers)
