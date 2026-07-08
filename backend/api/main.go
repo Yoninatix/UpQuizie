@@ -129,6 +129,7 @@ func main() {
 		auth.GET("/admin/users", requireRole("admin"), listUsers)
 		auth.POST("/admin/users", requireRole("admin"), createUserAdmin)
 		auth.PATCH("/admin/users/:uid", requireRole("admin"), updateUser)
+		auth.DELETE("/admin/users/:uid", requireRole("admin"), deleteUser)
 	}
 
 	port := getenv("APP_PORT", "8000")

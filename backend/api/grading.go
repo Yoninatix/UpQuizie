@@ -44,6 +44,8 @@ func gradeAnswerWithAI(modelAnswer, studentAnswer string, maxPoints int) (int, f
 }
 
 func listGradingSubmissions(c *gin.Context) {
+	role, _ := c.Get("role")
+	userID, _ := c.Get("userID")
 	query := `SELECT a.id, e.id, e.title, e.exam_mode, COALESCE(s.name,''),
 	        u.full_name, COALESCE(u.identifier,''), a.status, a.score,
 	        a.total_points, a.submitted_at
@@ -54,8 +56,13 @@ func listGradingSubmissions(c *gin.Context) {
 	 WHERE a.status <> 'in_progress'`
 	args := []interface{}{}
 	if sid := c.Query("subject_id"); sid != "" {
-		query += ` AND e.subject_id=$1`
 		args = append(args, sid)
+		query += fmt.Sprintf(` AND e.subject_id=$%d`, len(args))
+	}
+	// Educators only see submissions for subjects they own.
+	if role == "educator" {
+		args = append(args, userID)
+		query += fmt.Sprintf(` AND e.subject_id IN (SELECT id FROM subjects WHERE educator_id=$%d)`, len(args))
 	}
 	query += ` ORDER BY a.submitted_at DESC NULLS LAST`
 	rows, err := db.Query(context.Background(), query, args...)

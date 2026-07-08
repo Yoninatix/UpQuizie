@@ -8,6 +8,7 @@ export default function Register() {
   const nav = useNavigate();
   const [role, setRole] = useState<"student" | "educator">("student");
   const [form, setForm] = useState({ full_name: "", email: "", identifier: "", password: "" });
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -18,6 +19,10 @@ export default function Register() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    if (form.password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
     setBusy(true);
     try {
       await register({ ...form, role });
@@ -60,18 +65,21 @@ export default function Register() {
         )}
 
         <form onSubmit={submit} className="space-y-4">
-          <Field label="Full Name" value={form.full_name} onChange={(v) => upd("full_name", v)} placeholder="John Doe" />
-          <Field label="Institutional Email" type="email" value={form.email} onChange={(v) => upd("email", v)} placeholder="j.doe@university.edu" />
+          <Field label="Full Name" value={form.full_name} onChange={(v) => upd("full_name", v)} />
+          <Field label="Institutional Email" type="email" value={form.email} onChange={(v) => upd("email", v)} />
           <Field
             label={role === "student" ? "Student ID Number" : "Employee Number"}
             value={form.identifier}
             onChange={(v) => upd("identifier", v)}
-            placeholder={role === "student" ? "S-12345678" : "EMP-987654"}
           />
-          <Field label="Password" type="password" value={form.password} onChange={(v) => upd("password", v)} placeholder="••••••••" />
+          <Field label="Password" type="password" value={form.password} onChange={(v) => upd("password", v)} />
+          <Field label="Confirm Password" type="password" value={confirmPassword} onChange={setConfirmPassword} />
+          {confirmPassword && form.password !== confirmPassword && (
+            <p className="text-sm text-error -mt-2">Passwords do not match.</p>
+          )}
           <button
             type="submit"
-            disabled={busy}
+            disabled={busy || (confirmPassword !== "" && form.password !== confirmPassword)}
             className="w-full h-12 bg-primary-container text-white rounded-lg font-semibold flex items-center justify-center gap-2 disabled:opacity-60"
           >
             {busy ? "Creating…" : "Create Account"}

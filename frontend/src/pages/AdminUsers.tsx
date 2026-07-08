@@ -85,6 +85,8 @@ export default function AdminUsers() {
   const [form, setForm] = useState<UserForm>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     api.get<AdminUser[]>("/admin/users").then(setUsers).catch(() => {});
@@ -162,6 +164,21 @@ export default function AdminUsers() {
     }
   };
 
+  const deleteUser = async (u: AdminUser) => {
+    if (!confirm(`Delete ${u.full_name}'s account? This cannot be undone.`)) return;
+    setDeletingId(u.id);
+    setDeleteError("");
+    try {
+      await api.del(`/admin/users/${u.id}`);
+      setUsers((list) => list.filter((x) => x.id !== u.id));
+      if (modal === "edit" && editingId === u.id) setModal(null);
+    } catch (e) {
+      setDeleteError((e as ApiError).message || "Could not delete user.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const exportCsv = () => {
     const header = "Name,Email,ID Number,Role,Status,Joined";
     const lines = filtered.map((u) =>
@@ -220,6 +237,7 @@ export default function AdminUsers() {
             <option value="inactive">Inactive</option>
           </select>
         </label>
+        {deleteError && <p className="text-sm text-error basis-full">{deleteError}</p>}
         <button onClick={exportCsv} title="Export to CSV"
           className="p-2.5 border border-outline-variant rounded-lg text-on-surface-variant hover:bg-surface-container-high">
           <Icon name="download" />
@@ -267,10 +285,16 @@ export default function AdminUsers() {
                   </span>
                 </td>
                 <td className="px-6 py-4 text-right">
-                  <button onClick={() => openEdit(u)} title="View / edit user"
-                    className="p-2 text-on-surface-variant hover:bg-surface-container-high hover:text-secondary rounded transition-colors">
-                    <Icon name="edit" className="text-[18px]" />
-                  </button>
+                  <div className="flex justify-end gap-1">
+                    <button onClick={() => openEdit(u)} title="View / edit user"
+                      className="p-2 text-on-surface-variant hover:bg-surface-container-high hover:text-secondary rounded transition-colors">
+                      <Icon name="edit" className="text-[18px]" />
+                    </button>
+                    <button onClick={() => deleteUser(u)} disabled={deletingId === u.id} title="Delete user"
+                      className="p-2 text-on-surface-variant hover:bg-error-container hover:text-error rounded transition-colors disabled:opacity-50">
+                      <Icon name="delete" className="text-[18px]" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -380,15 +404,24 @@ export default function AdminUsers() {
               </div>
               {error && <p className="text-sm text-error">{error}</p>}
             </div>
-            <div className="px-6 py-4 bg-surface-container-low border-t border-outline-variant flex justify-end gap-3">
-              <button onClick={closeModal} disabled={saving}
-                className="px-5 py-2 border border-outline-variant text-on-surface-variant rounded-lg font-semibold disabled:opacity-50">
-                Cancel
-              </button>
-              <button onClick={submit} disabled={saving || !canSubmit}
-                className="px-6 py-2 bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-50">
-                {saving ? "Saving…" : modal === "create" ? "Create user" : "Save changes"}
-              </button>
+            <div className="px-6 py-4 bg-surface-container-low border-t border-outline-variant flex justify-between items-center gap-3">
+              {modal === "edit" ? (
+                <button onClick={() => { const u = users.find((x) => x.id === editingId); if (u) deleteUser(u); }}
+                  disabled={saving || deletingId === editingId}
+                  className="px-4 py-2 border border-error text-error rounded-lg font-semibold disabled:opacity-50 flex items-center gap-1.5">
+                  <Icon name="delete" className="text-[18px]" /> {deletingId === editingId ? "Deleting…" : "Delete account"}
+                </button>
+              ) : <span />}
+              <div className="flex gap-3">
+                <button onClick={closeModal} disabled={saving}
+                  className="px-5 py-2 border border-outline-variant text-on-surface-variant rounded-lg font-semibold disabled:opacity-50">
+                  Cancel
+                </button>
+                <button onClick={submit} disabled={saving || !canSubmit}
+                  className="px-6 py-2 bg-primary text-on-primary rounded-lg font-semibold disabled:opacity-50">
+                  {saving ? "Saving…" : modal === "create" ? "Create user" : "Save changes"}
+                </button>
+              </div>
             </div>
           </div>
         </div>

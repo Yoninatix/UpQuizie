@@ -26,7 +26,7 @@ func listSubjects(c *gin.Context) {
 	role, _ := c.Get("role")
 	userID, _ := c.Get("userID")
 
-	// Students only see subjects they're enrolled in.
+	// Students only see subjects they're enrolled in; educators only their own.
 	q := `SELECT s.id, s.code, s.name, s.department, s.description, s.status,
 	             COALESCE(u.full_name,''),
 	             (SELECT count(*) FROM subject_enrollments e WHERE e.subject_id=s.id),
@@ -35,6 +35,9 @@ func listSubjects(c *gin.Context) {
 	args := []interface{}{}
 	if role == "student" {
 		q += ` WHERE s.id IN (SELECT subject_id FROM subject_enrollments WHERE student_id=$1)`
+		args = append(args, userID)
+	} else if role == "educator" {
+		q += ` WHERE s.educator_id=$1`
 		args = append(args, userID)
 	}
 	q += ` ORDER BY s.created_at DESC`
@@ -213,6 +216,9 @@ func listExams(c *gin.Context) {
 	if role == "student" {
 		q += ` WHERE e.status='published' AND e.subject_id IN
 		        (SELECT subject_id FROM subject_enrollments WHERE student_id=$1)`
+		args = append(args, userID)
+	} else if role == "educator" {
+		q += ` WHERE e.subject_id IN (SELECT id FROM subjects WHERE educator_id=$1)`
 		args = append(args, userID)
 	}
 	q += ` ORDER BY e.created_at DESC`
@@ -761,6 +767,24 @@ func updateUser(c *gin.Context) {
 			c.JSON(409, gin.H{"error": "That email is already in use by another account."})
 			return
 		}
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(404, gin.H{"error": "user not found"})
+		return
+	}
+	c.JSON(200, gin.H{"ok": true})
+}
+
+func deleteUser(c *gin.Context) {
+	adminID, _ := c.Get("userID")
+	if fmt.Sprint(adminID) == c.Param("uid") {
+		c.JSON(400, gin.H{"error": "You cannot delete your own account."})
+		return
+	}
+	tag, err := db.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, c.Param("uid"))
+	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}

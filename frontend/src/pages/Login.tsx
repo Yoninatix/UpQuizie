@@ -57,7 +57,6 @@ export default function Login() {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@university.edu"
                   className="w-full pl-10 pr-4 py-3 bg-white border border-outline-variant rounded-lg focus:border-secondary outline-none"
                   required
                 />
@@ -71,7 +70,6 @@ export default function Login() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
                   className="w-full pl-10 pr-4 py-3 bg-white border border-outline-variant rounded-lg focus:border-secondary outline-none"
                   required
                 />
@@ -94,12 +92,6 @@ export default function Login() {
             </Link>
           </p>
         </div>
-
-        <p className="mt-6 text-center text-xs text-on-surface-variant">
-          Demo accounts (password: <span className="font-mono">password123</span>):
-          <br />
-          admin@university.edu · grecia@university.edu · alex@university.edu
-        </p>
       </main>
     </div>
   );
