@@ -14,11 +14,11 @@ INSERT INTO subject_enrollments (subject_id, student_id) VALUES
   ('aaaaaaaa-0000-0000-0000-000000000001', '33333333-3333-3333-3333-333333333333'),
   ('aaaaaaaa-0000-0000-0000-000000000002', '33333333-3333-3333-3333-333333333333');
 
-INSERT INTO uploaded_documents (id, subject_id, uploaded_by, filename, file_type, file_path, size_bytes, status) VALUES
+INSERT INTO uploaded_documents (id, subject_id, uploaded_by, filename, file_type, module_label, file_path, size_bytes, status) VALUES
   ('bbbbbbbb-0000-0000-0000-000000000001',
    'aaaaaaaa-0000-0000-0000-000000000001',
    '22222222-2222-2222-2222-222222222222',
-   'intro_to_ai.txt', 'TXT', '/app/uploads/seed/intro_to_ai.txt', 2048, 'ready');
+   'intro_to_ai.txt', 'TXT', 'Module 1', '/app/uploads/seed/intro_to_ai.txt', 2048, 'ready');
 
 INSERT INTO document_chunks (document_id, subject_id, chunk_index, content) VALUES
   ('bbbbbbbb-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001', 0,

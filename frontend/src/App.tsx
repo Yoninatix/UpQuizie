@@ -18,6 +18,7 @@ import Settings from "./pages/Settings";
 import AdminUsers from "./pages/AdminUsers";
 import SubjectDetail from "./pages/SubjectDetail";
 import ExamMonitor from "./pages/ExamMonitor";
+import QuestionBank from "./pages/QuestionBank";
 
 function Protected({ children }: { children: JSX.Element }) {
   const { user, loading } = useAuth();
@@ -52,6 +53,7 @@ export default function App() {
       <Route path="/calendar" element={<Protected><StudentCalendar /></Protected>} />
       <Route path="/settings" element={<Protected><Settings /></Protected>} />
       <Route path="/sessions" element={<Protected><ExamSessions /></Protected>} />
+      <Route path="/question-bank" element={<Protected><QuestionBank /></Protected>} />
       <Route path="/subjects" element={<Protected><Subjects /></Protected>} />
       <Route path="/subjects/:id" element={<Protected><SubjectDetail /></Protected>} />
       <Route path="/exams" element={<Protected><ExamsList /></Protected>} />

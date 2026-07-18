@@ -45,6 +45,7 @@ func main() {
 		log.Fatalf("could not connect to postgres: %v", err)
 	}
 	log.Println("connected to postgres (examdb)")
+	ensureSchema()
 
 	r := gin.Default()
 	r.MaxMultipartMemory = 32 << 20 // 32 MiB
@@ -65,6 +66,7 @@ func main() {
 	api.POST("/auth/logout", handleLogout)
 
 	api.GET("/avatars/:name", serveAvatar)
+	api.GET("/question-images/:name", serveQuestionImage)
 
 	auth := api.Group("")
 	auth.Use(authMiddleware())
@@ -81,6 +83,7 @@ func main() {
 		auth.DELETE("/subjects/:id", requireSubjectOwner(), deleteSubject)
 		auth.GET("/subjects/:id/students", requireSubjectOwner(), listStudents)
 		auth.POST("/subjects/:id/enroll", requireSubjectOwner(), enrollStudent)
+		auth.DELETE("/subjects/:id/students/:studentId", requireSubjectOwner(), dropStudent)
 
 		// Learning materials (file upload -> RAG processing)
 		auth.GET("/subjects/:id/documents", requireSubjectAccess(), listDocuments)
@@ -92,14 +95,19 @@ func main() {
 		auth.POST("/subjects/:id/generate", requireSubjectOwner(), generateQuestions)
 		auth.GET("/generation/:jobId", requireRole("educator", "admin"), getGenerationStatus)
 		auth.GET("/subjects/:id/generated", requireSubjectOwner(), listGenerated)
+		auth.GET("/subjects/:id/question-bank", requireSubjectOwner(), questionBank)
 		auth.DELETE("/subjects/:id/generated", requireSubjectOwner(), deleteAllGenerated)
 		auth.PATCH("/generated/:gid", requireRole("educator", "admin"), updateGenerated)
+		auth.POST("/generated/:gid/image", requireRole("educator", "admin"), uploadGeneratedQuestionImage)
+		auth.DELETE("/generated/:gid/image", requireRole("educator", "admin"), removeGeneratedQuestionImage)
 
 		// Exams (built from approved questions)
 		auth.GET("/exams", listExams)
 		auth.POST("/exams", requireRole("educator", "admin"), createExam)
 		auth.GET("/exams/:id", getExam)
+		auth.PATCH("/exams/:id", requireRole("educator", "admin"), updateExam)
 		auth.GET("/exams/:id/questions", listExamQuestions)
+		auth.PATCH("/exam-questions/:qid", requireRole("educator", "admin"), updateExamQuestion)
 		auth.POST("/exams/:id/publish", requireRole("educator", "admin"), publishExam)
 		auth.POST("/exams/:id/activation", requireRole("educator", "admin"), setExamActivation)
 		auth.DELETE("/exams/:id", requireRole("educator", "admin"), deleteExam)
@@ -144,4 +152,22 @@ func getenv(k, def string) string {
 		return v
 	}
 	return def
+}
+
+func ensureSchema() {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	statements := []string{
+		`ALTER TABLE uploaded_documents ADD COLUMN IF NOT EXISTS module_label TEXT NOT NULL DEFAULT 'Module 1'`,
+		`CREATE INDEX IF NOT EXISTS idx_documents_module ON uploaded_documents(subject_id, module_label)`,
+		`ALTER TABLE exams ADD COLUMN IF NOT EXISTS starts_at TIMESTAMPTZ`,
+		`ALTER TABLE exams ADD COLUMN IF NOT EXISTS due_at TIMESTAMPTZ`,
+		`ALTER TABLE generated_questions ADD COLUMN IF NOT EXISTS image_url TEXT`,
+		`ALTER TABLE exam_questions ADD COLUMN IF NOT EXISTS image_url TEXT`,
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(ctx, statement); err != nil {
+			log.Fatalf("could not apply schema update: %v", err)
+		}
+	}
 }

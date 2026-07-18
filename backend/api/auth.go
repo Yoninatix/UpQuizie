@@ -179,8 +179,14 @@ func authMiddleware() gin.HandlerFunc {
 			return
 		}
 		claims := token.Claims.(jwt.MapClaims)
-		c.Set("userID", claims["sub"])
-		c.Set("role", claims["role"])
+		userID, _ := claims["sub"].(string)
+		role, _ := claims["role"].(string)
+		if userID == "" || role == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token claims"})
+			return
+		}
+		c.Set("userID", userID)
+		c.Set("role", role)
 		c.Next()
 	}
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Layout, { Icon } from "../components/Layout";
 import { api, Subject, DocumentMeta } from "../api";
@@ -6,11 +7,7 @@ import ReviewQuestions from "./ReviewQuestions";
 
 interface DistRow { type: string; difficulty: string; count: number; points: number }
 interface JobStatus { status: "running" | "done" | "error"; requested: number; generated: number; error?: string | null }
-interface GenerationOptions { documents: { id: string; filename: string }[]; topics: string[] }
-
-// Observed generation speed on the reference GPU: ~10s per validated question.
-// Used for the initial estimate until the running job reveals its actual rate.
-const EST_MS_PER_QUESTION = 10_000;
+interface GenerationOptions { documents: { id: string; filename: string; module_label: string }[]; topics: string[] }
 
 function fmtDuration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000));
@@ -28,8 +25,23 @@ const TYPE_LABELS: Record<string, string> = {
   essay: "Essay",
 };
 
+function topicSplitPreview(dist: DistRow[], topics: string[]) {
+  const totals = new Map(topics.map((topic) => [topic, 0]));
+  if (topics.length <= 1) return [];
+  dist.forEach((row) => {
+    const count = Math.max(0, Number(row.count) || 0);
+    const base = Math.floor(count / topics.length);
+    const extra = count % topics.length;
+    topics.forEach((topic, index) => {
+      totals.set(topic, (totals.get(topic) || 0) + base + (index < extra ? 1 : 0));
+    });
+  });
+  return topics.map((topic) => ({ topic, count: totals.get(topic) || 0 }));
+}
+
 export default function EducatorDashboard() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const { data: subjects = [] } = useQuery({ queryKey: ["subjects"], queryFn: () => api.get<Subject[]>("/subjects") });
 
   const [subjectId, setSubjectId] = useState("");
@@ -52,8 +64,7 @@ export default function EducatorDashboard() {
   });
   const readyDocuments = documents.filter((document) => document.status === "ready");
   const validDocumentIds = documentIds.filter((id) => readyDocuments.some((document) => document.id === id));
-  const selectedDocumentIds = validDocumentIds.length > 0
-    ? validDocumentIds : readyDocuments[0] ? [readyDocuments[0].id] : [];
+  const selectedDocumentIds = validDocumentIds;
   const selectedDocumentKey = selectedDocumentIds.join(",");
   const { data: generationOptions } = useQuery<GenerationOptions>({
     queryKey: ["generation-options", sid, selectedDocumentKey],
@@ -72,7 +83,7 @@ export default function EducatorDashboard() {
 
   const start = useMutation({
     mutationFn: () => api.post<{ job_id: string }>(`/subjects/${sid}/generate`, {
-      topic: topics.join("; "), document_ids: selectedDocumentIds, distribution: dist,
+      topic: topics.join("; "), topics, document_ids: selectedDocumentIds, distribution: dist,
     }),
     onSuccess: (r) => { setJobId(r.job_id); setJobStartedAt(Date.now()); setJobEndedAt(null); setMsg(""); },
     onError: (e: any) => setMsg(`Error: ${e.message}`),
@@ -81,6 +92,7 @@ export default function EducatorDashboard() {
   const running = job?.status === "running" || start.isPending;
   const updateRow = (i: number, patch: Partial<DistRow>) => setDist((d) => d.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   const total = dist.reduce((s, r) => s + (Number(r.count) || 0), 0);
+  const topicPlan = topicSplitPreview(dist, topics);
 
   useEffect(() => {
     if (job?.status === "done" || job?.status === "error") {
@@ -97,23 +109,12 @@ export default function EducatorDashboard() {
   }, [running]);
 
   const elapsedMs = jobStartedAt ? (jobEndedAt ?? now) - jobStartedAt : 0;
-  // Until enough questions have landed to reveal the real rate, estimate from
-  // the reference speed; afterwards project from this job's own throughput.
-  const estTotalMs = job && job.requested > 0
-    ? (job.generated >= 2 && elapsedMs > 0
-      ? (elapsedMs / job.generated) * job.requested
-      : job.requested * EST_MS_PER_QUESTION)
-    : 0;
-  const remainingMs = Math.max(0, estTotalMs - elapsedMs);
-  const progressPct = job && job.requested > 0
-    ? Math.min(99, Math.round(Math.max(
-        (job.generated / job.requested) * 100,
-        estTotalMs > 0 ? Math.min(95, (elapsedMs / estTotalMs) * 100) : 0,
-      )))
-    : 0;
-
   return (
     <Layout title="Generate & Review Questions">
+      <button onClick={() => navigate(sid ? `/subjects/${sid}` : "/subjects")}
+        className="flex items-center gap-1 text-secondary text-sm font-semibold mb-5 hover:underline">
+        <Icon name="arrow_back" className="text-[18px]" /> Back to Subject
+      </button>
       <div className="grid grid-cols-12 gap-6">
         {/* Left: exam configuration */}
         <section className="col-span-12 space-y-6">
@@ -157,6 +158,11 @@ export default function EducatorDashboard() {
                   <label className="text-sm font-semibold text-on-surface">Question Distribution</label>
                   <span className="text-xs font-bold uppercase text-outline">Total: {total}</span>
                 </div>
+                {topics.length > 1 && total > 0 && (
+                  <p className="mb-2 rounded-lg bg-secondary-container/40 px-3 py-2 text-xs font-semibold text-secondary">
+                    Questions will be split across selected topics: {topicPlan.map((item) => `${item.topic}: ${item.count}`).join(" | ")}
+                  </p>
+                )}
                 <div className="space-y-3">
                   {dist.map((row, i) => (
                     <div key={i} className="flex items-end gap-3 bg-surface-container-low p-3 rounded-lg border border-outline-variant">
@@ -192,42 +198,28 @@ export default function EducatorDashboard() {
                 </button>
               </div>
 
-              <div className="pt-4 border-t border-outline-variant flex items-center justify-between gap-4">
+              <div className="pt-4 border-t border-outline-variant flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <a href="#review-questions" className="text-secondary text-sm font-semibold hover:underline">Go to Review Questions →</a>
-                <div className="flex items-center gap-3">
-                  {!running && total > 0 && (
-                    <span className="text-sm text-on-surface-variant whitespace-nowrap flex items-center gap-1">
-                      <Icon name="timer" className="text-[16px]" /> est. ~{fmtDuration(total * EST_MS_PER_QUESTION)}
-                    </span>
-                  )}
                   <button onClick={() => { setMsg(""); start.mutate(); }} disabled={running || !sid || selectedDocumentIds.length === 0}
-                    className="px-8 py-3 bg-secondary text-on-secondary rounded-lg font-semibold flex items-center gap-2 disabled:opacity-60">
+                    className="w-full sm:w-auto justify-center px-8 py-3 bg-secondary text-on-secondary rounded-lg font-semibold flex items-center gap-2 disabled:opacity-60">
                     <Icon name={running ? "sync" : "generating_tokens"} className={running ? "animate-spin" : ""} />
                     {running ? "Generating…" : "Generate Questions"}
                   </button>
-                </div>
               </div>
 
               {job && (
-                <div className="rounded-lg border border-outline-variant p-4 bg-surface-container-low text-sm space-y-3">
+                <div className="rounded-lg border border-outline-variant bg-surface-container-low px-4 py-3 text-sm">
                   {job.status === "running" && (
                     <>
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="flex items-center gap-2">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="flex items-center gap-2 font-semibold text-on-surface">
                           <Icon name="sync" className="animate-spin text-secondary" />
                           Generating {job.generated} of {job.requested} question{job.requested === 1 ? "" : "s"}…
                         </p>
-                        <p className="flex items-center gap-3 text-on-surface-variant">
-                          <span className="flex items-center gap-1"><Icon name="timer" className="text-[16px]" /> {fmtDuration(elapsedMs)} elapsed</span>
-                          <span className="font-semibold text-secondary">~{fmtDuration(remainingMs)} remaining</span>
+                        <p className="flex items-center gap-1 text-on-surface-variant">
+                          <Icon name="timer" className="text-[16px]" /> {fmtDuration(elapsedMs)} elapsed
                         </p>
                       </div>
-                      <div className="h-2 rounded-full bg-surface-container-high overflow-hidden">
-                        <div className="h-full bg-secondary rounded-full transition-all duration-1000" style={{ width: `${progressPct}%` }} />
-                      </div>
-                      <p className="text-xs text-on-surface-variant">
-                        Estimated from this job's speed (~10s per question on GPU). The AI validates every question against your document, so the pace can vary.
-                      </p>
                     </>
                   )}
                   {job.status === "done" && <p className="text-secondary flex items-center gap-2"><Icon name="check_circle" /> Done — {job.generated} validated question{job.generated === 1 ? "" : "s"} kept in {fmtDuration(elapsedMs)}. <a href="#review-questions" className="font-semibold underline">Review →</a></p>}
@@ -252,9 +244,21 @@ function DocumentDropdown({ documents, selected, onChange }: {
   documents: DocumentMeta[]; selected: string[]; onChange: (ids: string[]) => void;
 }) {
   const selectedNames = documents.filter((document) => selected.includes(document.id)).map((document) => document.filename);
+  const grouped = documents.reduce<Record<string, DocumentMeta[]>>((groups, document) => {
+    const label = document.module_label || "Module 1";
+    groups[label] = [...(groups[label] || []), document];
+    return groups;
+  }, {});
+  const modules = Object.keys(grouped).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  const selectedModules = modules.filter((moduleLabel) =>
+    grouped[moduleLabel].length > 0 && grouped[moduleLabel].every((document) => selected.includes(document.id))
+  );
   const label = documents.length === 0
     ? "No ready documents"
-    : selectedNames.length === 1 ? selectedNames[0] : `${selectedNames.length} documents selected`;
+    : selected.length === 0 ? "No documents selected"
+    : selectedModules.length === 1 && selected.length === grouped[selectedModules[0]].length
+      ? `${selectedModules[0]} selected`
+      : selectedNames.length === 1 ? selectedNames[0] : `${selectedNames.length} documents selected`;
   return (
     <details className={`relative mt-1.5 group ${documents.length === 0 ? "pointer-events-none opacity-60" : ""}`}>
       <summary className="w-full border border-outline-variant rounded-lg px-3 py-2.5 bg-white cursor-pointer list-none flex items-center justify-between">
@@ -262,19 +266,46 @@ function DocumentDropdown({ documents, selected, onChange }: {
       </summary>
       <div className="absolute z-30 mt-1 w-full max-h-64 overflow-y-auto rounded-lg border border-outline-variant bg-white shadow-xl p-2">
         {documents.length > 1 && (
-          <button type="button" onClick={() => onChange(documents.map((document) => document.id))}
+          <button type="button" onClick={() => {
+            const allDocumentIds = documents.map((document) => document.id);
+            const allSelected = allDocumentIds.every((id) => selected.includes(id));
+            onChange(allSelected ? [] : allDocumentIds);
+          }}
             className="w-full text-left px-2 py-2 rounded text-sm font-semibold text-secondary hover:bg-surface-container-low">
-            Select all documents
+            {documents.every((document) => selected.includes(document.id)) ? "Deselect all documents" : "Select all documents"}
           </button>
         )}
-        {documents.map((document) => (
-          <label key={document.id} className="flex items-center gap-2 px-2 py-2 rounded text-sm hover:bg-surface-container-low cursor-pointer">
-            <input type="checkbox" checked={selected.includes(document.id)} onChange={(event) => {
-              if (event.target.checked) onChange([...selected, document.id]);
-              else if (selected.length > 1) onChange(selected.filter((id) => id !== document.id));
-            }} />
-            <span className="truncate" title={document.filename}>{document.filename}</span>
-          </label>
+        {modules.map((moduleLabel) => (
+          <div key={moduleLabel} className="pt-2 first:pt-0">
+            <button
+              type="button"
+              onClick={() => {
+                const moduleIds = grouped[moduleLabel].map((document) => document.id);
+                const allSelected = moduleIds.every((id) => selected.includes(id));
+                const next = allSelected
+                  ? selected.filter((id) => !moduleIds.includes(id))
+                  : Array.from(new Set([...selected, ...moduleIds]));
+                onChange(next);
+              }}
+              className="w-full px-2 py-2 rounded text-left text-[11px] font-bold uppercase text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container flex items-center justify-between gap-2"
+            >
+              <span className="flex items-center gap-2">
+                <Icon name="folder" className="text-[16px]" /> {moduleLabel}
+              </span>
+              <span className="normal-case text-[10px] font-semibold">
+                {grouped[moduleLabel].filter((document) => selected.includes(document.id)).length}/{grouped[moduleLabel].length} selected
+              </span>
+            </button>
+            {grouped[moduleLabel].map((document) => (
+              <label key={document.id} className="flex items-center gap-2 px-2 py-2 rounded text-sm hover:bg-surface-container-low cursor-pointer">
+                <input type="checkbox" checked={selected.includes(document.id)} onChange={(event) => {
+                  if (event.target.checked) onChange([...selected, document.id]);
+                  else if (selected.length > 1) onChange(selected.filter((id) => id !== document.id));
+                }} />
+                <span className="truncate" title={document.filename}>{document.filename}</span>
+              </label>
+            ))}
+          </div>
         ))}
       </div>
     </details>

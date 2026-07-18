@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -133,12 +136,27 @@ func enrollStudent(c *gin.Context) {
 	c.JSON(201, gin.H{"ok": true})
 }
 
+func dropStudent(c *gin.Context) {
+	tag, err := db.Exec(context.Background(),
+		`DELETE FROM subject_enrollments WHERE subject_id=$1 AND student_id=$2`,
+		c.Param("id"), c.Param("studentId"))
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(404, gin.H{"error": "student is not enrolled in this subject"})
+		return
+	}
+	c.JSON(200, gin.H{"ok": true})
+}
+
 // ---------- Generated questions (review / approval) ----------
 
 func listGenerated(c *gin.Context) {
 	status := c.DefaultQuery("status", "pending")
 	rows, err := db.Query(context.Background(),
-		`SELECT id, type, difficulty, points, prompt, options, answer, topic, source_ref, status
+		`SELECT id, type, difficulty, points, prompt, options, answer, topic, image_url, source_ref, status
 		 FROM generated_questions WHERE subject_id=$1 AND status=$2 ORDER BY created_at`,
 		c.Param("id"), status)
 	if err != nil {
@@ -151,11 +169,11 @@ func listGenerated(c *gin.Context) {
 		var id, qtype, diff, prompt, st string
 		var pts int
 		var options, answer []byte
-		var topic, sref *string
-		rows.Scan(&id, &qtype, &diff, &pts, &prompt, &options, &answer, &topic, &sref, &st)
+		var topic, imageURL, sref *string
+		rows.Scan(&id, &qtype, &diff, &pts, &prompt, &options, &answer, &topic, &imageURL, &sref, &st)
 		out = append(out, gin.H{"id": id, "type": qtype, "difficulty": diff, "points": pts,
 			"prompt": prompt, "options": json.RawMessage(options), "answer": json.RawMessage(answer),
-			"topic": topic, "source_ref": sref, "status": st})
+			"topic": topic, "image_url": imageURL, "source_ref": sref, "status": st})
 	}
 	c.JSON(200, out)
 }
@@ -179,6 +197,7 @@ func updateGenerated(c *gin.Context) {
 		Prompt     *string         `json:"prompt"`
 		Difficulty *string         `json:"difficulty"`
 		Points     *int            `json:"points"`
+		ImageURL   *string         `json:"image_url"`
 		Options    json.RawMessage `json:"options"`
 		Answer     json.RawMessage `json:"answer"`
 	}
@@ -192,16 +211,162 @@ func updateGenerated(c *gin.Context) {
 		   prompt     = COALESCE($3, prompt),
 		   difficulty = COALESCE($4, difficulty),
 		   points     = COALESCE($5, points),
-		   options    = COALESCE($6, options),
-		   answer     = COALESCE($7, answer)
+		   image_url  = COALESCE($6, image_url),
+		   options    = COALESCE($7, options),
+		   answer     = COALESCE($8, answer)
 		 WHERE id=$1`,
 		c.Param("gid"), req.Status, req.Prompt, req.Difficulty, req.Points,
-		jsonOrNil(req.Options), jsonOrNil(req.Answer))
+		req.ImageURL, jsonOrNil(req.Options), jsonOrNil(req.Answer))
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(200, gin.H{"ok": true})
+}
+
+func uploadGeneratedQuestionImage(c *gin.Context) {
+	questionID := c.Param("gid")
+	fileHeader, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file is required (multipart field 'file')"})
+		return
+	}
+	if fileHeader.Size > 8<<20 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "image must be 8 MB or smaller"})
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
+	allowed := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".gif": true}
+	if !allowed[ext] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "image must be jpg, png, webp, or gif"})
+		return
+	}
+	dir := filepath.Join(uploadDir, "question-images")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	name := fmt.Sprintf("%s-%d%s", questionID, time.Now().UnixNano(), ext)
+	path := filepath.Join(dir, name)
+	if err := c.SaveUploadedFile(fileHeader, path); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not save file: " + err.Error()})
+		return
+	}
+	url := "/api/question-images/" + name
+	var oldURL *string
+	err = db.QueryRow(context.Background(),
+		`UPDATE generated_questions SET image_url=$2 WHERE id=$1 RETURNING image_url`,
+		questionID, url).Scan(&oldURL)
+	if err != nil {
+		_ = os.Remove(path)
+		c.JSON(http.StatusNotFound, gin.H{"error": "question not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"image_url": url})
+}
+
+func removeGeneratedQuestionImage(c *gin.Context) {
+	tag, err := db.Exec(context.Background(), `UPDATE generated_questions SET image_url=NULL WHERE id=$1`, c.Param("gid"))
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(404, gin.H{"error": "question not found"})
+		return
+	}
+	c.JSON(200, gin.H{"ok": true})
+}
+
+func serveQuestionImage(c *gin.Context) {
+	name := filepath.Base(c.Param("name"))
+	path := filepath.Join(uploadDir, "question-images", name)
+	if _, err := os.Stat(path); err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.File(path)
+}
+
+func questionBank(c *gin.Context) {
+	subjectID := c.Param("id")
+	ctx := context.Background()
+	groups := []gin.H{}
+
+	examRows, err := db.Query(ctx,
+		`SELECT id, title, status, exam_mode, total_points, created_at
+		 FROM exams WHERE subject_id=$1 ORDER BY created_at DESC`, subjectID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	defer examRows.Close()
+
+	for examRows.Next() {
+		var examID, title, status, examMode string
+		var totalPoints int
+		var createdAt time.Time
+		if err := examRows.Scan(&examID, &title, &status, &examMode, &totalPoints, &createdAt); err != nil {
+			continue
+		}
+		questionRows, err := db.Query(ctx,
+			`SELECT id, type, difficulty, points, prompt, options, answer, topic, image_url, source_ref, position
+			 FROM exam_questions WHERE exam_id=$1 ORDER BY position`, examID)
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		questions := []gin.H{}
+		for questionRows.Next() {
+			var id, qtype, diff, prompt string
+			var pts, pos int
+			var options, answer []byte
+			var topic, imageURL, sref *string
+			questionRows.Scan(&id, &qtype, &diff, &pts, &prompt, &options, &answer, &topic, &imageURL, &sref, &pos)
+			questions = append(questions, gin.H{"id": id, "type": qtype, "difficulty": diff, "points": pts,
+				"prompt": prompt, "options": json.RawMessage(options), "answer": json.RawMessage(answer),
+				"topic": topic, "image_url": imageURL, "source_ref": sref, "position": pos})
+		}
+		questionRows.Close()
+		groups = append(groups, gin.H{
+			"group_type":   "exam",
+			"exam_id":      examID,
+			"title":        title,
+			"status":       status,
+			"exam_mode":    examMode,
+			"total_points": totalPoints,
+			"created_at":   createdAt,
+			"questions":    questions,
+		})
+	}
+
+	generatedRows, err := db.Query(ctx,
+		`SELECT id, type, difficulty, points, prompt, options, answer, topic, image_url, source_ref, status, created_at
+		 FROM generated_questions WHERE subject_id=$1 ORDER BY created_at DESC`, subjectID)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	defer generatedRows.Close()
+	generated := []gin.H{}
+	for generatedRows.Next() {
+		var id, qtype, diff, prompt, status string
+		var pts int
+		var options, answer []byte
+		var topic, imageURL, sref *string
+		var createdAt time.Time
+		generatedRows.Scan(&id, &qtype, &diff, &pts, &prompt, &options, &answer, &topic, &imageURL, &sref, &status, &createdAt)
+		generated = append(generated, gin.H{"id": id, "type": qtype, "difficulty": diff, "points": pts,
+			"prompt": prompt, "options": json.RawMessage(options), "answer": json.RawMessage(answer),
+			"topic": topic, "image_url": imageURL, "source_ref": sref, "status": status, "created_at": createdAt})
+	}
+	groups = append(groups, gin.H{
+		"group_type": "generated",
+		"title":      "Generated question bank",
+		"questions":  generated,
+	})
+
+	c.JSON(200, gin.H{"groups": groups})
 }
 
 // ---------- Exams ----------
@@ -210,7 +375,7 @@ func listExams(c *gin.Context) {
 	role, _ := c.Get("role")
 	userID, _ := c.Get("userID")
 	q := `SELECT e.id, e.title, e.duration_min, e.total_points, e.status, COALESCE(s.name,''), e.subject_id,
-	             e.exam_mode, e.live_state, e.access_code, e.live_started_at, e.due_at
+	             e.exam_mode, e.live_state, e.access_code, e.live_started_at, e.starts_at, e.due_at
 	      FROM exams e LEFT JOIN subjects s ON s.id=e.subject_id`
 	args := []interface{}{}
 	if role == "student" {
@@ -232,32 +397,39 @@ func listExams(c *gin.Context) {
 	for rows.Next() {
 		var id, title, status, subject, subjectID, examMode, liveState string
 		var accessCode *string
-		var liveStartedAt, dueAt *time.Time
+		var liveStartedAt, startsAt, dueAt *time.Time
 		var dur, pts int
 		rows.Scan(&id, &title, &dur, &pts, &status, &subject, &subjectID,
-			&examMode, &liveState, &accessCode, &liveStartedAt, &dueAt)
+			&examMode, &liveState, &accessCode, &liveStartedAt, &startsAt, &dueAt)
 		if role == "student" {
 			accessCode = nil
 		}
 		out = append(out, gin.H{"id": id, "title": title, "duration_min": dur,
 			"total_points": pts, "status": status, "subject": subject, "subject_id": subjectID,
 			"exam_mode": examMode, "live_state": liveState, "access_code": accessCode,
-			"live_started_at": liveStartedAt, "due_at": dueAt})
+			"live_started_at": liveStartedAt, "starts_at": startsAt, "due_at": dueAt})
 	}
 	c.JSON(200, out)
 }
 
-// createExam builds an exam from approved generated questions.
+// createExam builds an exam from generated questions and reusable bank questions.
 func createExam(c *gin.Context) {
+	type questionRef struct {
+		ID     string `json:"id"`
+		Source string `json:"source"`
+	}
 	var req struct {
-		SubjectID   string     `json:"subject_id" binding:"required"`
-		Title       string     `json:"title" binding:"required"`
-		DurationMin int        `json:"duration_min"`
-		ExamMode    string     `json:"exam_mode"`
-		AccessCode  string     `json:"access_code"`
-		DueAt       *time.Time `json:"due_at"`
-		Publish     bool       `json:"publish"`
-		QuestionIDs []string   `json:"question_ids"`
+		SubjectID       string        `json:"subject_id" binding:"required"`
+		Title           string        `json:"title" binding:"required"`
+		DurationMin     int           `json:"duration_min"`
+		ExamMode        string        `json:"exam_mode"`
+		AccessCode      string        `json:"access_code"`
+		StartsAt        *time.Time    `json:"starts_at"`
+		DueAt           *time.Time    `json:"due_at"`
+		Publish         bool          `json:"publish"`
+		QuestionIDs     []string      `json:"question_ids"`
+		BankQuestionIDs []string      `json:"bank_question_ids"`
+		QuestionRefs    []questionRef `json:"question_refs"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
@@ -282,30 +454,69 @@ func createExam(c *gin.Context) {
 
 	var examID string
 	err := db.QueryRow(ctx,
-		`INSERT INTO exams (subject_id,title,duration_min,exam_mode,access_code,created_by,status,due_at)
-		 VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,CASE WHEN $7 THEN 'published'::exam_status ELSE 'draft'::exam_status END,$8)
+		`INSERT INTO exams (subject_id,title,duration_min,exam_mode,access_code,created_by,status,starts_at,due_at)
+		 VALUES ($1,$2,$3,$4,NULLIF($5,''),$6,CASE WHEN $7 THEN 'published'::exam_status ELSE 'draft'::exam_status END,$8,$9)
 		 RETURNING id`, req.SubjectID, req.Title, req.DurationMin, req.ExamMode, req.AccessCode,
-		userID, req.Publish, req.DueAt).Scan(&examID)
+		userID, req.Publish, req.StartsAt, req.DueAt).Scan(&examID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Copy approved generated questions into exam_questions.
-	pos := 0
-	for _, gid := range req.QuestionIDs {
-		pos++
-		_, err := db.Exec(ctx,
-			`INSERT INTO exam_questions (exam_id,type,difficulty,points,prompt,options,answer,topic,source_ref,position)
-			 SELECT $1,type,difficulty,points,prompt,options,answer,topic,source_ref,$2
-			 FROM generated_questions WHERE id=$3`,
-			examID, pos, gid)
-		if err == nil {
-			db.Exec(ctx, `UPDATE generated_questions SET status='approved' WHERE id=$1`, gid)
+	refs := req.QuestionRefs
+	if len(refs) == 0 {
+		for _, id := range req.QuestionIDs {
+			refs = append(refs, questionRef{ID: id, Source: "generated"})
+		}
+		for _, id := range req.BankQuestionIDs {
+			refs = append(refs, questionRef{ID: id, Source: "bank"})
+		}
+	}
+
+	added := 0
+	for _, ref := range refs {
+		if ref.ID == "" {
+			continue
+		}
+		position := added + 1
+		var err error
+		var rows int64
+		switch ref.Source {
+		case "", "generated":
+			tag, execErr := db.Exec(ctx,
+				`INSERT INTO exam_questions (exam_id,type,difficulty,points,prompt,options,answer,topic,image_url,source_ref,position)
+				 SELECT $1,type,difficulty,points,prompt,options,answer,topic,image_url,source_ref,$2
+				 FROM generated_questions WHERE id=$3 AND subject_id=$4`,
+				examID, position, ref.ID, req.SubjectID)
+			err = execErr
+			rows = tag.RowsAffected()
+			if err == nil && rows > 0 {
+				db.Exec(ctx, `DELETE FROM generated_questions WHERE id=$1 AND subject_id=$2`, ref.ID, req.SubjectID)
+			}
+		case "bank", "exam":
+			tag, execErr := db.Exec(ctx,
+				`INSERT INTO exam_questions (exam_id,type,difficulty,points,prompt,options,answer,topic,image_url,source_ref,position)
+				 SELECT $1,q.type,q.difficulty,q.points,q.prompt,q.options,q.answer,q.topic,q.image_url,q.source_ref,$2
+				 FROM exam_questions q
+				 JOIN exams e ON e.id=q.exam_id
+				 WHERE q.id=$3 AND e.subject_id=$4`,
+				examID, position, ref.ID, req.SubjectID)
+			err = execErr
+			rows = tag.RowsAffected()
+		default:
+			c.JSON(400, gin.H{"error": "question_refs source must be generated or bank"})
+			return
+		}
+		if err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		if rows > 0 {
+			added++
 		}
 	}
 	recomputeTotal(examID)
-	c.JSON(201, gin.H{"id": examID, "questions_added": pos})
+	c.JSON(201, gin.H{"id": examID, "questions_added": added})
 }
 
 func recomputeTotal(examID string) {
@@ -324,6 +535,45 @@ func publishExam(c *gin.Context) {
 	c.JSON(200, gin.H{"ok": true})
 }
 
+func updateExam(c *gin.Context) {
+	var req struct {
+		Title       *string    `json:"title"`
+		DurationMin *int       `json:"duration_min"`
+		StartsAt    *time.Time `json:"starts_at"`
+		DueAt       *time.Time `json:"due_at"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
+		c.JSON(400, gin.H{"error": "title cannot be empty"})
+		return
+	}
+	if req.DurationMin != nil && *req.DurationMin < 1 {
+		c.JSON(400, gin.H{"error": "duration must be at least 1 minute"})
+		return
+	}
+	tag, err := db.Exec(context.Background(),
+		`UPDATE exams SET
+		   title = COALESCE($2, title),
+		   duration_min = COALESCE($3, duration_min),
+		   starts_at = $4,
+		   due_at = $5
+		 WHERE id=$1`,
+		c.Param("id"), req.Title, req.DurationMin, req.StartsAt, req.DueAt)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		c.JSON(404, gin.H{"error": "exam not found"})
+		return
+	}
+	recomputeTotal(c.Param("id"))
+	c.JSON(200, gin.H{"ok": true})
+}
+
 func setExamActivation(c *gin.Context) {
 	var req struct {
 		Active *bool `json:"active" binding:"required"`
@@ -336,7 +586,12 @@ func setExamActivation(c *gin.Context) {
 	if *req.Active {
 		status = "published"
 	}
-	tag, err := db.Exec(context.Background(), `UPDATE exams SET status=$2 WHERE id=$1`, c.Param("id"), status)
+	tag, err := db.Exec(context.Background(),
+		`UPDATE exams SET
+		   status=$2,
+		   live_state=CASE WHEN $2='published' AND exam_mode='live' AND live_state='ended' THEN 'waiting' ELSE live_state END,
+		   live_started_at=CASE WHEN $2='published' AND exam_mode='live' AND live_state='ended' THEN NULL ELSE live_started_at END
+		 WHERE id=$1`, c.Param("id"), status)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -366,18 +621,19 @@ func getExam(c *gin.Context) {
 	var id, title, status, examMode, liveState string
 	var dur, pts int
 	var subjectID *string
-	var liveStartedAt *time.Time
+	var liveStartedAt, startsAt, dueAt *time.Time
 	err := db.QueryRow(context.Background(),
-		`SELECT id, title, status, duration_min, total_points, subject_id, exam_mode, live_state, live_started_at
+		`SELECT id, title, status, duration_min, total_points, subject_id, exam_mode, live_state, live_started_at, starts_at, due_at
 		 FROM exams WHERE id=$1`, c.Param("id")).Scan(&id, &title, &status, &dur, &pts,
-		&subjectID, &examMode, &liveState, &liveStartedAt)
+		&subjectID, &examMode, &liveState, &liveStartedAt, &startsAt, &dueAt)
 	if err != nil {
 		c.JSON(404, gin.H{"error": "exam not found"})
 		return
 	}
 	c.JSON(200, gin.H{"id": id, "title": title, "status": status,
 		"duration_min": dur, "total_points": pts, "subject_id": subjectID,
-		"exam_mode": examMode, "live_state": liveState, "live_started_at": liveStartedAt})
+		"exam_mode": examMode, "live_state": liveState, "live_started_at": liveStartedAt,
+		"starts_at": startsAt, "due_at": dueAt})
 }
 
 func listExamQuestions(c *gin.Context) {
@@ -387,16 +643,18 @@ func listExamQuestions(c *gin.Context) {
 		userID, _ := c.Get("userID")
 		var allowed bool
 		if err := db.QueryRow(context.Background(),
-			`SELECT e.exam_mode <> 'live' OR EXISTS (
+			`SELECT (e.exam_mode <> 'take_home' OR e.starts_at IS NULL OR now() >= e.starts_at)
+			   AND e.live_state <> 'ended' AND (
+			   e.exam_mode <> 'live' OR EXISTS (
 			   SELECT 1 FROM student_exam_attempts a
-			   WHERE a.exam_id=e.id AND a.student_id=$2 AND a.started_at IS NOT NULL)
+			   WHERE a.exam_id=e.id AND a.student_id=$2 AND a.started_at IS NOT NULL))
 			 FROM exams e WHERE e.id=$1`, c.Param("id"), userID).Scan(&allowed); err != nil || !allowed {
-			c.JSON(403, gin.H{"error": "The teacher has not started this live exam yet."})
+			c.JSON(403, gin.H{"error": "This exam is not available yet."})
 			return
 		}
 	}
 	rows, err := db.Query(context.Background(),
-		`SELECT id, type, difficulty, points, prompt, options, answer, topic, source_ref, position
+		`SELECT id, type, difficulty, points, prompt, options, answer, topic, image_url, source_ref, position
 		 FROM exam_questions WHERE exam_id=$1 ORDER BY position`, c.Param("id"))
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
@@ -408,17 +666,65 @@ func listExamQuestions(c *gin.Context) {
 		var id, qtype, diff, prompt string
 		var pts, pos int
 		var options, answer []byte
-		var topic, sref *string
-		rows.Scan(&id, &qtype, &diff, &pts, &prompt, &options, &answer, &topic, &sref, &pos)
+		var topic, imageURL, sref *string
+		rows.Scan(&id, &qtype, &diff, &pts, &prompt, &options, &answer, &topic, &imageURL, &sref, &pos)
 		q := gin.H{"id": id, "type": qtype, "difficulty": diff, "points": pts,
 			"prompt": prompt, "options": json.RawMessage(options), "topic": topic,
-			"source_ref": sref, "position": pos}
+			"image_url": imageURL, "source_ref": sref, "position": pos}
 		if includeAnswers {
 			q["answer"] = json.RawMessage(answer)
 		}
 		out = append(out, q)
 	}
 	c.JSON(200, out)
+}
+
+func updateExamQuestion(c *gin.Context) {
+	var req struct {
+		Prompt   *string         `json:"prompt"`
+		Points   *int            `json:"points"`
+		ImageURL *string         `json:"image_url"`
+		Options  json.RawMessage `json:"options"`
+		Answer   json.RawMessage `json:"answer"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Prompt != nil && strings.TrimSpace(*req.Prompt) == "" {
+		c.JSON(400, gin.H{"error": "question text cannot be empty"})
+		return
+	}
+	if req.Points != nil && *req.Points < 1 {
+		c.JSON(400, gin.H{"error": "points must be at least 1"})
+		return
+	}
+	var examID string
+	err := db.QueryRow(context.Background(),
+		`UPDATE exam_questions SET
+		   prompt = COALESCE($2, prompt),
+		   points = COALESCE($3, points),
+		   image_url = COALESCE($4, image_url),
+		   options = COALESCE($5, options),
+		   answer = COALESCE($6, answer)
+		 WHERE id=$1 RETURNING exam_id`,
+		c.Param("qid"), req.Prompt, req.Points, req.ImageURL, jsonOrNil(req.Options), jsonOrNil(req.Answer)).Scan(&examID)
+	if err != nil {
+		c.JSON(404, gin.H{"error": "question not found"})
+		return
+	}
+	recomputeTotal(examID)
+	c.JSON(200, gin.H{"ok": true})
+}
+
+func examAvailableToStudent(examMode, liveState string, startsAt *time.Time) bool {
+	if examMode == "take_home" && startsAt != nil && time.Now().Before(*startsAt) {
+		return false
+	}
+	if examMode == "live" && liveState == "ended" {
+		return false
+	}
+	return true
 }
 
 // ---------- Attempts & scoring ----------
@@ -440,13 +746,18 @@ func startAttempt(c *gin.Context) {
 	var durationMin int
 	var accessCode *string
 	var liveStartedAt *time.Time
-	if err := db.QueryRow(ctx, `SELECT exam_mode, live_state, status, access_code, duration_min, live_started_at FROM exams WHERE id=$1`, examID).
-		Scan(&examMode, &liveState, &examStatus, &accessCode, &durationMin, &liveStartedAt); err != nil {
+	var startsAt *time.Time
+	if err := db.QueryRow(ctx, `SELECT exam_mode, live_state, status, access_code, duration_min, live_started_at, starts_at FROM exams WHERE id=$1`, examID).
+		Scan(&examMode, &liveState, &examStatus, &accessCode, &durationMin, &liveStartedAt, &startsAt); err != nil {
 		c.JSON(404, gin.H{"error": "exam not found"})
 		return
 	}
 	if examStatus != "published" {
 		c.JSON(409, gin.H{"error": "This exam is not available."})
+		return
+	}
+	if !examAvailableToStudent(examMode, liveState, startsAt) {
+		c.JSON(409, gin.H{"error": "This exam is not open yet.", "starts_at": startsAt})
 		return
 	}
 	if accessCode != nil && *accessCode != "" && req.Code != *accessCode {
@@ -548,10 +859,18 @@ func submitAttempt(c *gin.Context) {
 			continue
 		}
 		maxTotal += pts
-		correct, auto := autoGrade(qtype, answer, a.Response)
+		correct := false
 		var awardedDB interface{} = nil
 		feedback := ""
-		if auto {
+		if isBlankResponse(qtype, a.Response) {
+			awardedDB = 0
+			feedback = "No answer submitted. Automatic score: 0."
+			if topic != "" {
+				agg := topicAgg[topic]
+				agg[1]++
+				topicAgg[topic] = agg
+			}
+		} else if correct, auto := autoGrade(qtype, answer, a.Response); auto {
 			awarded := 0
 			if correct {
 				awarded = pts
@@ -613,6 +932,44 @@ func submitAttempt(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"status": status, "score": total, "total_points": maxTotal})
+}
+
+func isBlankResponse(qtype string, responseJSON []byte) bool {
+	trimmed := strings.TrimSpace(string(responseJSON))
+	if trimmed == "" || trimmed == "null" || trimmed == "{}" || trimmed == "[]" {
+		return true
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(responseJSON, &raw); err != nil {
+		return false
+	}
+	switch qtype {
+	case "mcq":
+		_, ok := raw["index"]
+		return !ok
+	case "true_false":
+		_, ok := raw["value"]
+		return !ok
+	case "fill_blank", "short_answer", "essay":
+		var resp struct {
+			Text string `json:"text"`
+		}
+		json.Unmarshal(responseJSON, &resp)
+		return strings.TrimSpace(resp.Text) == ""
+	case "matching":
+		var resp struct {
+			Pairs [][]int `json:"pairs"`
+		}
+		json.Unmarshal(responseJSON, &resp)
+		return len(resp.Pairs) == 0
+	default:
+		if text, ok := raw["text"]; ok {
+			var value string
+			json.Unmarshal(text, &value)
+			return strings.TrimSpace(value) == ""
+		}
+		return len(raw) == 0
+	}
 }
 
 func autoGrade(qtype string, answerJSON, responseJSON []byte) (bool, bool) {

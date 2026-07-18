@@ -28,6 +28,7 @@ func uploadDocument(c *gin.Context) {
 		c.JSON(400, gin.H{"error": "file is required (multipart field 'file')"})
 		return
 	}
+	moduleLabel := normalizeModuleLabel(c.PostForm("module_label"))
 
 	docID := uuid.NewString()
 	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
@@ -41,9 +42,9 @@ func uploadDocument(c *gin.Context) {
 
 	ctx := context.Background()
 	_, err = db.Exec(ctx,
-		`INSERT INTO uploaded_documents (id, subject_id, uploaded_by, filename, file_type, file_path, size_bytes, status)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,'processing')`,
-		docID, subjectID, userID, fileHeader.Filename, strings.TrimPrefix(ext, "."), storedPath, fileHeader.Size)
+		`INSERT INTO uploaded_documents (id, subject_id, uploaded_by, filename, file_type, module_label, file_path, size_bytes, status)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'processing')`,
+		docID, subjectID, userID, fileHeader.Filename, strings.TrimPrefix(ext, "."), moduleLabel, storedPath, fileHeader.Size)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -78,8 +79,8 @@ func uploadDocument(c *gin.Context) {
 
 func listDocuments(c *gin.Context) {
 	rows, err := db.Query(context.Background(),
-		`SELECT id, filename, file_type, size_bytes, status, error, created_at
-		 FROM uploaded_documents WHERE subject_id=$1 ORDER BY created_at DESC`, c.Param("id"))
+		`SELECT id, filename, file_type, module_label, size_bytes, status, error, created_at
+		 FROM uploaded_documents WHERE subject_id=$1 ORDER BY module_label, created_at DESC`, c.Param("id"))
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -87,15 +88,26 @@ func listDocuments(c *gin.Context) {
 	defer rows.Close()
 	out := []gin.H{}
 	for rows.Next() {
-		var id, filename, status string
+		var id, filename, moduleLabel, status string
 		var ftype, errMsg *string
 		var size int64
 		var created time.Time
-		rows.Scan(&id, &filename, &ftype, &size, &status, &errMsg, &created)
+		rows.Scan(&id, &filename, &ftype, &moduleLabel, &size, &status, &errMsg, &created)
 		out = append(out, gin.H{"id": id, "filename": filename, "file_type": ftype,
-			"size_bytes": size, "status": status, "error": errMsg, "created_at": created})
+			"module_label": moduleLabel, "size_bytes": size, "status": status, "error": errMsg, "created_at": created})
 	}
 	c.JSON(200, out)
+}
+
+func normalizeModuleLabel(value string) string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if value == "" {
+		return "Module 1"
+	}
+	if len(value) > 80 {
+		value = value[:80]
+	}
+	return value
 }
 
 // generationOptions supplies non-free-text generation controls. Topics are
@@ -118,8 +130,8 @@ func generationOptions(c *gin.Context) {
 	}
 
 	rows, err := db.Query(context.Background(),
-		`SELECT id, filename FROM uploaded_documents
-		 WHERE subject_id=$1 AND status='ready' ORDER BY created_at DESC`, subjectID)
+		`SELECT id, filename, module_label FROM uploaded_documents
+		 WHERE subject_id=$1 AND status='ready' ORDER BY module_label, created_at DESC`, subjectID)
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -127,9 +139,9 @@ func generationOptions(c *gin.Context) {
 	documents := []gin.H{}
 	documentNames := map[string]string{}
 	for rows.Next() {
-		var id, filename string
-		if err := rows.Scan(&id, &filename); err == nil {
-			documents = append(documents, gin.H{"id": id, "filename": filename})
+		var id, filename, moduleLabel string
+		if err := rows.Scan(&id, &filename, &moduleLabel); err == nil {
+			documents = append(documents, gin.H{"id": id, "filename": filename, "module_label": moduleLabel})
 			documentNames[id] = filename
 		}
 	}
@@ -331,6 +343,7 @@ func generateQuestions(c *gin.Context) {
 	subjectID := c.Param("id")
 	var req struct {
 		Topic        string   `json:"topic"`
+		Topics       []string `json:"topics"`
 		DocumentID   string   `json:"document_id"`
 		DocumentIDs  []string `json:"document_ids"`
 		Distribution []struct {
@@ -348,6 +361,7 @@ func generateQuestions(c *gin.Context) {
 	body, _ := json.Marshal(gin.H{
 		"subject_id":   subjectID,
 		"topic":        req.Topic,
+		"topics":       req.Topics,
 		"document_id":  req.DocumentID,
 		"document_ids": req.DocumentIDs,
 		"distribution": req.Distribution,

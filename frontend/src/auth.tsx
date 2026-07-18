@@ -22,7 +22,14 @@ export function useAuth() {
     api
       .get<User>("/me")
       .then(setUser)
-      .catch(() => setUser(null))
+      .catch(async () => {
+        setUser(null);
+        try {
+          await api.post("/auth/logout");
+        } catch {
+          /* ignore */
+        }
+      })
       .finally(() => setReady(true));
   }, [ready, setUser, setReady]);
 
@@ -50,6 +57,7 @@ export function useAuth() {
     }
     queryClient.clear();
     setUser(null);
+    setReady(true);
   }
 
   return { user, loading: !ready, login, register, logout };

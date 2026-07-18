@@ -34,7 +34,19 @@ export default function Enrollment() {
 
   const enroll = useMutation({
     mutationFn: (e: string) => api.post(`/subjects/${id}/enroll`, { email: e }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["students", id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["students", id] });
+      qc.invalidateQueries({ queryKey: ["subjects"] });
+    },
+  });
+  const drop = useMutation({
+    mutationFn: (studentId: string) => api.del(`/subjects/${id}/students/${studentId}`),
+    onSuccess: () => {
+      setMsg("Student dropped from this subject.");
+      qc.invalidateQueries({ queryKey: ["students", id] });
+      qc.invalidateQueries({ queryKey: ["subjects"] });
+    },
+    onError: (error: Error) => setMsg(error.message),
   });
 
   async function enrollOne() {
@@ -135,6 +147,7 @@ export default function Enrollment() {
                     <th className="px-6 py-4">Email</th>
                     <th className="px-6 py-4">ID</th>
                     <th className="px-6 py-4">Enrolled</th>
+                    <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-outline-variant">
@@ -152,6 +165,21 @@ export default function Enrollment() {
                       <td className="px-6 py-4 text-on-surface-variant">{s.identifier || "—"}</td>
                       <td className="px-6 py-4 text-on-surface-variant text-sm">
                         {new Date(s.enrolled_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex justify-end">
+                          <button
+                            onClick={() => {
+                              if (confirm(`Drop ${s.full_name} from ${subject?.name || "this subject"}? Their account and other subjects will remain.`)) {
+                                drop.mutate(s.id);
+                              }
+                            }}
+                            disabled={drop.isPending}
+                            className="inline-flex items-center gap-1 border border-outline-variant text-on-surface-variant px-3 py-1.5 rounded-lg text-sm font-semibold hover:text-secondary hover:border-secondary disabled:opacity-50"
+                          >
+                            <Icon name="person_remove" className="text-[17px]" /> Drop
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

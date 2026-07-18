@@ -48,6 +48,7 @@ CREATE TABLE uploaded_documents (
     uploaded_by UUID REFERENCES users(id) ON DELETE SET NULL,
     filename    TEXT NOT NULL,
     file_type   TEXT,
+    module_label TEXT NOT NULL DEFAULT 'Module 1',
     file_path   TEXT NOT NULL,               -- path within the shared uploads volume
     size_bytes  BIGINT DEFAULT 0,
     status      document_status NOT NULL DEFAULT 'uploaded',
@@ -82,6 +83,7 @@ CREATE TABLE generated_questions (
     options     JSONB,
     answer      JSONB,
     topic       TEXT,
+    image_url   TEXT,
     source_ref  TEXT,                         -- grounding quote from retrieved chunk
     status      generated_status NOT NULL DEFAULT 'pending',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -100,6 +102,7 @@ CREATE TABLE exams (
     access_code   TEXT,
     live_state    TEXT NOT NULL DEFAULT 'waiting' CHECK (live_state IN ('waiting', 'started', 'ended')),
     live_started_at TIMESTAMPTZ,
+    starts_at     TIMESTAMPTZ,
     status        exam_status NOT NULL DEFAULT 'draft',
     created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -116,6 +119,7 @@ CREATE TABLE exam_questions (
     options     JSONB,
     answer      JSONB,
     topic       TEXT,
+    image_url   TEXT,
     source_ref  TEXT,
     position    INT NOT NULL DEFAULT 0
 );
@@ -165,6 +169,7 @@ CREATE TABLE topic_performance (
 CREATE INDEX idx_subjects_educator   ON subjects(educator_id);
 CREATE INDEX idx_enrollments_student ON subject_enrollments(student_id);
 CREATE INDEX idx_documents_subject   ON uploaded_documents(subject_id);
+CREATE INDEX idx_documents_module    ON uploaded_documents(subject_id, module_label);
 CREATE INDEX idx_chunks_document     ON document_chunks(document_id);
 CREATE INDEX idx_genq_subject_status ON generated_questions(subject_id, status);
 CREATE INDEX idx_exams_subject       ON exams(subject_id);

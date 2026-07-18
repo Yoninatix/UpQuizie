@@ -137,9 +137,15 @@ func verifyExamAccess(c *gin.Context) {
 		return
 	}
 	var code *string
+	var mode, liveState string
+	var startsAt *time.Time
 	if err := db.QueryRow(context.Background(),
-		`SELECT access_code FROM exams WHERE id=$1`, c.Param("id")).Scan(&code); err != nil {
+		`SELECT access_code, exam_mode, live_state, starts_at FROM exams WHERE id=$1`, c.Param("id")).Scan(&code, &mode, &liveState, &startsAt); err != nil {
 		c.JSON(404, gin.H{"error": "exam not found"})
+		return
+	}
+	if !examAvailableToStudent(mode, liveState, startsAt) {
+		c.JSON(409, gin.H{"ok": false, "error": "exam is not open yet", "starts_at": startsAt})
 		return
 	}
 	if code == nil || *code == "" || *code == req.Code {
@@ -153,10 +159,25 @@ func verifyExamAccess(c *gin.Context) {
 func examAccessInfo(c *gin.Context) {
 	var code *string
 	var mode, liveState string
+	var startsAt *time.Time
 	if err := db.QueryRow(context.Background(),
-		`SELECT access_code, exam_mode, live_state FROM exams WHERE id=$1`, c.Param("id")).Scan(&code, &mode, &liveState); err != nil {
+		`SELECT access_code, exam_mode, live_state, starts_at FROM exams WHERE id=$1`, c.Param("id")).Scan(&code, &mode, &liveState, &startsAt); err != nil {
 		c.JSON(404, gin.H{"error": "exam not found"})
 		return
 	}
-	c.JSON(200, gin.H{"requires_code": code != nil && *code != "", "exam_mode": mode, "live_state": liveState})
+	open := examAvailableToStudent(mode, liveState, startsAt)
+	blockReason := ""
+	if !open && mode == "live" && liveState == "ended" {
+		blockReason = "ended"
+	} else if !open {
+		blockReason = "not_open"
+	}
+	c.JSON(200, gin.H{
+		"requires_code": code != nil && *code != "",
+		"exam_mode":     mode,
+		"live_state":    liveState,
+		"starts_at":     startsAt,
+		"open":          open,
+		"block_reason":  blockReason,
+	})
 }

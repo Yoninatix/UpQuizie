@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Layout, { Icon } from "../components/Layout";
+import QuestionPrompt from "../components/QuestionPrompt";
 import { api, ApiError, Exam, Question } from "../api";
 
 export default function TakeExam() {
@@ -24,8 +25,18 @@ export default function TakeExam() {
 
   useEffect(() => {
     if (!id) return;
-    api.get<{ requires_code: boolean; exam_mode: "take_home" | "live"; live_state: string }>(`/exams/${id}/access`)
-      .then((r) => { setNeedCode(r.requires_code); if (!r.requires_code) begin(); })
+    api.get<{ requires_code: boolean; exam_mode: "take_home" | "live"; live_state: string; open: boolean; starts_at?: string | null; block_reason?: string }>(`/exams/${id}/access`)
+      .then((r) => {
+        if (!r.open) {
+          setNeedCode(false);
+          setStartError(r.block_reason === "ended"
+            ? "This live exam has ended. Ask your teacher to activate it again."
+            : r.starts_at ? `This exam opens on ${new Date(r.starts_at).toLocaleString()}.` : "This exam is not open yet.");
+          return;
+        }
+        setNeedCode(r.requires_code);
+        if (!r.requires_code) begin();
+      })
       .catch(() => { setNeedCode(false); begin(); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -147,7 +158,7 @@ export default function TakeExam() {
   if (needCode) {
     return (
       <Layout title="Verify Access Code">
-        <div className="max-w-md mx-auto bg-surface-container-lowest border border-outline-variant rounded-xl p-8 mt-10 text-center">
+        <div className="max-w-md mx-auto bg-surface-container-lowest border border-outline-variant rounded-xl p-5 md:p-6 mt-10 text-center">
           <div className="w-16 h-16 mx-auto bg-primary-container text-on-primary-container rounded-full flex items-center justify-center mb-4">
             <Icon name="lock" className="text-[32px]" />
           </div>
@@ -168,7 +179,7 @@ export default function TakeExam() {
   if (startError) {
     return (
       <Layout title="Exam">
-        <div className="max-w-md mx-auto bg-surface-container-lowest border border-outline-variant rounded-xl p-8 mt-10 text-center">
+        <div className="max-w-md mx-auto bg-surface-container-lowest border border-outline-variant rounded-xl p-5 md:p-6 mt-10 text-center">
           <div className="w-16 h-16 mx-auto bg-error-container text-on-error-container rounded-full flex items-center justify-center mb-4">
             <Icon name="block" className="text-[32px]" />
           </div>
@@ -208,26 +219,26 @@ export default function TakeExam() {
 
   return (
     <Layout title={exam.title}>
-      <div className="max-w-3xl mx-auto">
+      <div className={`${q?.type === "matching" ? "max-w-6xl" : "max-w-4xl"} mx-auto`}>
         {/* Status bar */}
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mb-5">
           <div className="flex items-center gap-2 text-sm">
             <span className="font-semibold text-secondary">Question {questions.length ? idx + 1 : 0} of {questions.length}</span>
             {q && <><span className="text-outline-variant">•</span><span className="text-on-surface-variant">{q.points} pts</span></>}
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             {secondsLeft != null && (
-              <span className={`flex items-center gap-1 px-4 py-2 rounded-lg font-bold font-mono ${secondsLeft < 300 ? "bg-error-container text-on-error-container animate-pulse" : "bg-surface-container-high text-primary"}`}>
+              <span className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-bold font-mono ${secondsLeft < 300 ? "bg-error-container text-on-error-container animate-pulse" : "bg-surface-container-high text-primary"}`}>
                 <Icon name="timer" className="text-base" /> {fmt(secondsLeft)}
               </span>
             )}
             <button onClick={() => { if (confirm("Submit your exam?")) submit(); }}
-              className="bg-primary text-on-primary px-6 py-2 rounded-lg font-semibold">Submit Exam</button>
+              className="bg-primary text-on-primary px-5 py-2 rounded-lg text-sm font-semibold">Submit Exam</button>
           </div>
         </div>
 
         {/* Progress dots */}
-        <div className="flex gap-1 mb-6 flex-wrap">
+        <div className="flex gap-1 mb-5 flex-wrap">
           {questions.map((_, i) => (
             <div key={i} className={`w-2.5 h-2.5 rounded-full ${i === idx ? "bg-primary ring-2 ring-primary ring-offset-2" : responses[questions[i].id] ? "bg-secondary" : "bg-surface-container-highest"}`} />
           ))}
@@ -235,13 +246,19 @@ export default function TakeExam() {
 
         {/* Question card */}
         {q ? (
-          <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-8">
-            <h2 className="font-headline text-xl text-on-surface mb-6 leading-snug">{q.prompt}</h2>
+          <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-5 md:p-6">
+            <QuestionPrompt
+              prompt={q.prompt}
+              imageUrl={q.image_url}
+              className="mb-5 space-y-3 font-headline text-lg md:text-xl text-on-surface leading-snug"
+              imageClassName="max-h-[420px] w-full rounded-md object-contain"
+              imageWrapperClassName="my-5 rounded-lg border border-outline-variant bg-surface-container-low p-2"
+            />
 
             {q.type === "mcq" && Array.isArray(q.options) && (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {q.options.map((opt: any, i: number) => (
-                  <label key={i} className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all ${responses[q.id]?.index === i ? "border-secondary bg-secondary-container/20" : "border-outline-variant hover:bg-surface-container-low"}`}>
+                  <label key={i} className={`flex items-center gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-all ${responses[q.id]?.index === i ? "border-secondary bg-secondary-container/20" : "border-outline-variant hover:bg-surface-container-low"}`}>
                     <input type="radio" name={q.id} checked={responses[q.id]?.index === i} onChange={() => setResp(q.id, { index: i })} />
                     <span>{typeof opt === "string" ? opt : JSON.stringify(opt)}</span>
                   </label>
@@ -252,7 +269,7 @@ export default function TakeExam() {
             {q.type === "true_false" && (
               <div className="flex gap-3">
                 {[true, false].map((v) => (
-                  <label key={String(v)} className={`flex-1 flex items-center justify-center gap-2 p-4 border-2 rounded-xl cursor-pointer ${responses[q.id]?.value === v ? "border-secondary bg-secondary-container/20" : "border-outline-variant hover:bg-surface-container-low"}`}>
+                  <label key={String(v)} className={`flex-1 flex items-center justify-center gap-2 rounded-lg border px-4 py-3 cursor-pointer ${responses[q.id]?.value === v ? "border-secondary bg-secondary-container/20" : "border-outline-variant hover:bg-surface-container-low"}`}>
                     <input type="radio" name={q.id} checked={responses[q.id]?.value === v} onChange={() => setResp(q.id, { value: v })} />
                     {v ? "True" : "False"}
                   </label>
@@ -281,19 +298,19 @@ export default function TakeExam() {
 
         {/* Nav */}
         {q && (
-          <div className="flex justify-between items-center mt-6">
+          <div className="flex justify-between items-center mt-5">
             <button onClick={() => setIdx((i) => Math.max(0, i - 1))} disabled={idx === 0}
-              className="flex items-center gap-2 px-6 py-3 border border-primary text-primary rounded-lg font-semibold disabled:opacity-40">
+              className="flex items-center gap-2 px-5 py-2.5 border border-primary text-primary rounded-lg text-sm font-semibold disabled:opacity-40">
               <Icon name="arrow_back" className="text-lg" /> Previous
             </button>
             {idx < questions.length - 1 ? (
               <button onClick={() => setIdx((i) => Math.min(questions.length - 1, i + 1))}
-                className="flex items-center gap-2 px-8 py-3 bg-primary text-on-primary rounded-lg font-semibold">
+                className="flex items-center gap-2 px-6 py-2.5 bg-primary text-on-primary rounded-lg text-sm font-semibold">
                 Next Question <Icon name="arrow_forward" className="text-lg" />
               </button>
             ) : (
               <button onClick={() => { if (confirm("Submit your exam?")) submit(); }} disabled={busy}
-                className="px-8 py-3 bg-secondary text-on-secondary rounded-lg font-semibold disabled:opacity-60">
+                className="px-6 py-2.5 bg-secondary text-on-secondary rounded-lg text-sm font-semibold disabled:opacity-60">
                 {busy ? "Submitting…" : "Finish & Submit"}
               </button>
             )}
@@ -304,55 +321,218 @@ export default function TakeExam() {
   );
 }
 
-// Matching answer control: each left item gets a dropdown of lettered right
-// items. Selections build the { pairs: [[leftIndex, rightIndex], ...] }
-// response shape the grader and review pages already expect.
+// Matching answer control. Students tap a left item, then tap the matching
+// right item; the lines are stored in the same pairs shape the grader expects.
 function MatchingInput({ left, right, pairs, onChange }: {
   left: string[];
   right: string[];
   pairs: number[][];
   onChange: (pairs: number[][]) => void;
 }) {
-  const chosen = new Map(pairs.map(([l, r]) => [l, r]));
-  const usedRight = new Set(pairs.map(([, r]) => r));
+  const boardRef = useRef<HTMLDivElement>(null);
+  const leftRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const rightRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const [activeLeft, setActiveLeft] = useState<number | null>(null);
+  const [points, setPoints] = useState<{
+    left: { x: number; y: number }[];
+    right: { x: number; y: number }[];
+  }>({ left: [], right: [] });
 
-  const pick = (leftIndex: number, value: string) => {
-    const next = new Map(chosen);
-    if (value === "") next.delete(leftIndex);
-    else next.set(leftIndex, Number(value));
-    onChange([...next.entries()].map(([l, r]) => [l, r]));
+  const chosen = new Map(
+    pairs
+      .filter(([l, r]) => Number.isInteger(l) && Number.isInteger(r))
+      .map(([l, r]) => [l, r]),
+  );
+  const usedRight = new Map(
+    pairs
+      .filter(([l, r]) => Number.isInteger(l) && Number.isInteger(r))
+      .map(([l, r]) => [r, l]),
+  );
+
+  const colors = ["#2563eb", "#16a34a", "#f59e0b", "#7c3aed", "#dc2626", "#0891b2"];
+
+  const refreshPoints = () => {
+    const board = boardRef.current;
+    if (!board) return;
+    const box = board.getBoundingClientRect();
+    const read = (node: HTMLButtonElement | null) => {
+      if (!node) return { x: 0, y: 0 };
+      const rect = node.getBoundingClientRect();
+      return {
+        x: rect.left + rect.width / 2 - box.left,
+        y: rect.top + rect.height / 2 - box.top,
+      };
+    };
+    setPoints({
+      left: left.map((_, index) => read(leftRefs.current[index])),
+      right: right.map((_, index) => read(rightRefs.current[index])),
+    });
+  };
+
+  useEffect(() => {
+    const id = requestAnimationFrame(refreshPoints);
+    const onResize = () => refreshPoints();
+    window.addEventListener("resize", onResize);
+    const observer = typeof ResizeObserver !== "undefined" && boardRef.current
+      ? new ResizeObserver(refreshPoints)
+      : null;
+    if (observer && boardRef.current) observer.observe(boardRef.current);
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener("resize", onResize);
+      observer?.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [left, right, pairs]);
+
+  const connect = (leftIndex: number, rightIndex: number) => {
+    const next = pairs
+      .filter(([l, r]) => l !== leftIndex && r !== rightIndex)
+      .concat([[leftIndex, rightIndex]])
+      .sort((a, b) => a[0] - b[0]);
+    onChange(next);
+    setActiveLeft(null);
+  };
+
+  const removeLeft = (leftIndex: number) => {
+    onChange(pairs.filter(([l]) => l !== leftIndex));
+    if (activeLeft === leftIndex) setActiveLeft(null);
+  };
+
+  const linePath = (from: { x: number; y: number }, to: { x: number; y: number }) => {
+    const gap = Math.max(90, Math.abs(to.x - from.x) * 0.42);
+    return `M ${from.x} ${from.y} C ${from.x + gap} ${from.y}, ${to.x - gap} ${to.y}, ${to.x} ${to.y}`;
   };
 
   return (
-    <div className="space-y-4 text-sm">
-      <div className="space-y-2">
-        {left.map((item, leftIndex) => {
-          const current = chosen.get(leftIndex);
-          return (
-            <div key={leftIndex} className="flex items-center gap-3 p-3 bg-surface-container rounded-lg">
-              <span className="flex-1 text-on-surface">{leftIndex + 1}. {item}</span>
-              <select value={current ?? ""} onChange={(e) => pick(leftIndex, e.target.value)}
-                className={`w-24 border rounded-lg px-2 py-1.5 bg-white font-semibold ${current != null ? "border-secondary text-secondary" : "border-outline-variant text-on-surface-variant"}`}>
-                <option value="">Select</option>
-                {right.map((_, rightIndex) => (
-                  <option key={rightIndex} value={rightIndex}
-                    disabled={usedRight.has(rightIndex) && current !== rightIndex}>
-                    {String.fromCharCode(65 + rightIndex)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          );
-        })}
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-on-surface-variant">
+          Select an item on the left, then select its matching answer on the right.
+        </p>
+        <button
+          type="button"
+          onClick={() => { onChange([]); setActiveLeft(null); }}
+          disabled={pairs.length === 0}
+          className="inline-flex items-center gap-2 border border-outline-variant text-primary px-3 py-2 rounded-lg text-sm font-semibold disabled:opacity-40"
+        >
+          <Icon name="restart_alt" className="text-[18px]" /> Clear All
+        </button>
       </div>
-      <div className="space-y-2">
-        {right.map((item, rightIndex) => (
-          <div key={rightIndex} className={`p-3 rounded-lg flex gap-2 ${usedRight.has(rightIndex) ? "bg-secondary-container/40 text-on-surface" : "bg-secondary-container/20 text-on-surface"}`}>
-            <span className="font-bold shrink-0">{String.fromCharCode(65 + rightIndex)}.</span>
-            <span>{item}</span>
+
+      <div className="overflow-x-auto pb-2">
+        <div ref={boardRef} className="relative min-w-[700px] rounded-xl bg-surface-container-low p-4">
+          <svg className="pointer-events-none absolute inset-0 z-0 h-full w-full" aria-hidden="true">
+            {pairs.map(([leftIndex, rightIndex]) => {
+              const from = points.left[leftIndex];
+              const to = points.right[rightIndex];
+              if (!from || !to) return null;
+              const color = colors[leftIndex % colors.length];
+              return (
+                <g key={`${leftIndex}-${rightIndex}`}>
+                  <path d={linePath(from, to)} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" opacity="0.9" />
+                  <circle cx={from.x} cy={from.y} r="6" fill="white" stroke={color} strokeWidth="4" />
+                  <circle cx={to.x} cy={to.y} r="6" fill="white" stroke={color} strokeWidth="4" />
+                </g>
+              );
+            })}
+          </svg>
+
+          <div className="relative z-10 grid grid-cols-[minmax(240px,1fr)_140px_minmax(240px,1fr)] gap-3">
+            <div>
+              <h3 className="mb-3 text-center text-sm font-bold uppercase tracking-wide text-on-surface-variant">Items</h3>
+              <div className="space-y-2.5">
+                {left.map((item, leftIndex) => {
+                  const connectedRight = chosen.get(leftIndex);
+                  const selected = activeLeft === leftIndex;
+                  const color = colors[leftIndex % colors.length];
+                  return (
+                    <div key={leftIndex} className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setActiveLeft(selected ? null : leftIndex)}
+                        className={`min-h-[64px] flex-1 rounded-lg border bg-white px-3.5 py-2.5 text-left shadow-sm transition-all ${
+                          selected ? "border-secondary ring-2 ring-secondary/30" : connectedRight != null ? "border-secondary/70" : "border-outline-variant hover:border-secondary"
+                        }`}
+                      >
+                        <span className="text-xs font-bold text-on-surface-variant">#{leftIndex + 1}</span>
+                        <span className="mt-1 block font-semibold text-on-surface">{item}</span>
+                        {connectedRight != null && (
+                          <span className="mt-1 block text-xs font-semibold text-secondary">
+                            Connected to {String.fromCharCode(65 + connectedRight)}
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        ref={(node) => { leftRefs.current[leftIndex] = node; }}
+                        type="button"
+                        onClick={() => setActiveLeft(selected ? null : leftIndex)}
+                        aria-label={`Connection point for ${item}`}
+                        className={`h-6 w-6 shrink-0 rounded-full border-[3px] bg-white transition-transform ${selected ? "scale-110" : ""}`}
+                        style={{ borderColor: selected || connectedRight != null ? color : "#94a3b8" }}
+                      />
+                      {connectedRight != null && (
+                        <button
+                          type="button"
+                          onClick={() => removeLeft(leftIndex)}
+                          className="h-8 w-8 shrink-0 rounded-full text-on-surface-variant hover:bg-error-container hover:text-on-error-container"
+                          title="Remove connection"
+                          aria-label={`Remove connection for ${item}`}
+                        >
+                          <Icon name="close" className="text-[18px]" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center px-2 text-center text-xs font-semibold text-on-surface-variant">
+              {activeLeft == null ? "Tap a left dot to begin" : `Now choose the answer for #${activeLeft + 1}`}
+            </div>
+
+            <div>
+              <h3 className="mb-3 text-center text-sm font-bold uppercase tracking-wide text-on-surface-variant">Answers</h3>
+              <div className="space-y-2.5">
+                {right.map((item, rightIndex) => {
+                  const connectedLeft = usedRight.get(rightIndex);
+                  const selectedColor = connectedLeft != null ? colors[connectedLeft % colors.length] : "#94a3b8";
+                  return (
+                    <div key={rightIndex} className="flex items-center gap-2">
+                      <button
+                        ref={(node) => { rightRefs.current[rightIndex] = node; }}
+                        type="button"
+                        onClick={() => {
+                          if (activeLeft != null) connect(activeLeft, rightIndex);
+                          else if (connectedLeft != null) setActiveLeft(connectedLeft);
+                        }}
+                        aria-label={`Connection point for answer ${String.fromCharCode(65 + rightIndex)}`}
+                        className={`h-6 w-6 shrink-0 rounded-full border-[3px] bg-white transition-transform ${activeLeft != null ? "hover:scale-110" : ""}`}
+                        style={{ borderColor: selectedColor }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (activeLeft != null) connect(activeLeft, rightIndex);
+                          else if (connectedLeft != null) setActiveLeft(connectedLeft);
+                        }}
+                        className={`min-h-[64px] flex-1 rounded-lg border bg-white px-3.5 py-2.5 text-left shadow-sm transition-all ${
+                          connectedLeft != null ? "border-secondary/70" : activeLeft != null ? "border-outline-variant hover:border-secondary" : "border-outline-variant"
+                        }`}
+                      >
+                        <span className="text-xs font-bold text-on-surface-variant">{String.fromCharCode(65 + rightIndex)}</span>
+                        <span className="mt-1 block text-on-surface">{item}</span>
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-        ))}
+        </div>
       </div>
     </div>
   );
 }
+

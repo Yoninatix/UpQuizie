@@ -104,7 +104,7 @@ function schemaFor(type: string, difficulty: string): string {
   }
 }
 
-interface DistItem { type: string; difficulty: string; count: number; points: number }
+interface DistItem { type: string; difficulty: string; count: number; points: number; topic?: string }
 
 function difficultyGuidance(difficulty: string): string {
   if (difficulty === "easy") return "Test a basic fact, definition, name, date, or simple concept.";
@@ -206,6 +206,33 @@ function unique(values: string[]): string[] {
     seen.add(key);
     return true;
   });
+}
+
+function splitTopicList(topic: unknown, topics: unknown): string[] {
+  const raw = Array.isArray(topics) && topics.length
+    ? topics
+    : typeof topic === "string" ? topic.split(/[;\n,]+/) : [];
+  return unique(raw
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean));
+}
+
+function splitDistributionByTopics(dist: DistItem[], topics: string[]): DistItem[] {
+  if (topics.length <= 1) {
+    return dist.map((item) => ({ ...item, topic: topics[0] || item.topic }));
+  }
+  const expanded: DistItem[] = [];
+  for (const item of dist) {
+    const count = Math.max(1, item.count || 1);
+    const base = Math.floor(count / topics.length);
+    const extra = count % topics.length;
+    topics.forEach((topic, index) => {
+      const topicCount = base + (index < extra ? 1 : 0);
+      if (topicCount > 0) expanded.push({ ...item, count: topicCount, topic });
+    });
+  }
+  return expanded;
 }
 
 function documentPhrases(text: string): string[] {
@@ -362,14 +389,13 @@ async function runGeneration(
 ): Promise<void> {
   const startedAt = Date.now();
   const seen = new Set<string>();
-  const retrievalQuery = [topic, ...dist.map((item) => `${item.difficulty} ${item.type} questions`)]
-    .filter(Boolean).join("; ");
-  const pool = await retrieveSources(subjectId, documentIds, retrievalQuery);
   // Promise-valued so concurrent candidates sharing a source key await one
   // extraction instead of each firing its own (cache-stampede under concurrency).
   const factCache = new Map<string, Promise<string[]>>();
 
-  const genBatch = async (item: DistItem, want: number, callNumber: number) => {
+  const genBatch = async (
+    item: DistItem, want: number, callNumber: number, pool: GroundingSource[], topicFocus: string
+  ) => {
     // MCQ facts are extracted once and reused. Rotating context on every
     // candidate caused repeated extraction calls and multi-minute jobs.
     const sources = contextFor(pool, item.type === "mcq" ? 1 : callNumber);
@@ -414,7 +440,7 @@ ${renderSources(sources)}`, {
       try {
         const mcqOutput = await chat(`You are a quiz writer.
 
-Turn the FACT into ONE natural, standalone ${item.difficulty} multiple-choice question${topic ? ` about "${topic}"` : ""}.
+Turn the FACT into ONE natural, standalone ${item.difficulty} multiple-choice question${topicFocus ? ` about "${topicFocus}"` : ""}.
 
 Rules:
 - The uploaded content is the only source of knowledge. Use only the fact; preserve its meaning and add no outside information, assumptions, or invented details.
@@ -471,7 +497,7 @@ ${fact}`, {
         // Normalize harmless small-model schema drift before deterministic review.
         question.type = "mcq";
         question.difficulty = item.difficulty;
-        question.topic = typeof question.topic === "string" ? question.topic : (topic || "Uploaded material");
+        question.topic = typeof question.topic === "string" ? question.topic : (topicFocus || "Uploaded material");
         question.source_fact = fact;
         if (typeof question.prompt !== "string" && typeof question.question === "string") {
           question.prompt = question.question;
@@ -558,7 +584,7 @@ ${question.options.map((option: string, index: number) => `${String.fromCharCode
       }
     }
 
-    const prompt = `You are an expert educational assessment generator. Write up to ${want} DISTINCT ${item.difficulty} ${item.type} questions${topic ? ` about "${topic}"` : ""}, using ONLY the uploaded source excerpts below.
+    const prompt = `You are an expert educational assessment generator. Write up to ${want} DISTINCT ${item.difficulty} ${item.type} questions${topicFocus ? ` about "${topicFocus}"` : ""}, using ONLY the uploaded source excerpts below.
 
 Return ONLY a JSON array containing no more than ${want} objects. Each object must have this schema:
 ${schemaFor(item.type, item.difficulty)}
@@ -622,12 +648,13 @@ ${renderSources(sources)}`;
 
   const tryInsert = async (item: DistItem, question: any, sources: GroundingSource[]): Promise<boolean> => {
     question.prompt = sanitizePrompt(question?.prompt);
+    if (item.topic) question.topic = item.topic;
     const normalizedPrompt = String(question?.prompt || "").toLowerCase().replace(/\s+/g, " ").trim();
     // Matching questions legitimately share a stock prompt; their identity is
     // the left-hand item set, so include it in the duplicate key.
     const dedupKey = item.type === "matching" && Array.isArray(question?.options?.left)
-      ? `${normalizedPrompt}|${JSON.stringify(question.options.left).toLowerCase()}`
-      : normalizedPrompt;
+      ? `${item.topic || ""}|${normalizedPrompt}|${JSON.stringify(question.options.left).toLowerCase()}`
+      : `${item.topic || ""}|${normalizedPrompt}`;
     if (!normalizedPrompt || seen.has(dedupKey)) return false;
     let lastReason = "no retrieved source supports this candidate";
     for (let index = 0; index < sources.length; index++) {
@@ -652,6 +679,10 @@ ${renderSources(sources)}`;
 
   const processItem = async (item: DistItem) => {
     const target = item.count || 1;
+    const topicFocus = item.topic || topic;
+    const retrievalQuery = [topicFocus, `${item.difficulty} ${item.type} questions`]
+      .filter(Boolean).join("; ");
+    const pool = await retrieveSources(subjectId, documentIds, retrievalQuery);
     let produced = 0;
     let call = 0;
     // MCQ uses a per-candidate multi-stage pipeline (extract fact -> write ->
@@ -672,7 +703,7 @@ ${renderSources(sources)}`;
         : Math.min(Math.max(1, Math.ceil(remaining / perCall)), maxCalls - call);
       const waveCalls = Array.from({ length: waveSize }, () => ++call);
       const batches = await Promise.all(waveCalls.map((n) =>
-        limit(() => genBatch(item, Math.min(perCall, remaining), n))));
+        limit(() => genBatch(item, Math.min(perCall, remaining), n, pool, topicFocus))));
       for (const batch of batches) {
         for (const question of batch.questions) {
           if (produced >= target) break;
@@ -689,7 +720,7 @@ ${renderSources(sources)}`;
       let ordinal = 0;
       for (let attempt = 0; attempt < pool.length * 6 && produced < target; attempt++) {
         const source = pool[attempt % pool.length];
-        const question = deterministicQuestion(item, source, ordinal++, topic);
+        const question = deterministicQuestion(item, source, ordinal++, topicFocus);
         if (question && await tryInsert(item, question, [source])) produced++;
       }
     }
@@ -705,7 +736,7 @@ ${renderSources(sources)}`;
         "rejected candidates were discarded."
       );
     }
-    console.log(`item ${item.type}/${item.difficulty}: produced ${produced}/${target} validated questions in ${call} LLM call(s)`);
+    console.log(`item ${item.type}/${item.difficulty}${topicFocus ? `/${topicFocus}` : ""}: produced ${produced}/${target} validated questions in ${call} LLM call(s)`);
   };
 
   // Distribution rows are independent; run them concurrently under the shared
@@ -767,7 +798,7 @@ app.delete("/subject/:id", async (req, res) => {
 });
 
 app.post("/generate", async (req, res) => {
-  const { subject_id, document_id, document_ids, topic, distribution } = req.body || {};
+  const { subject_id, document_id, document_ids, topic, topics, distribution } = req.body || {};
   if (!subject_id) return res.status(400).json({ error: "subject_id is required" });
   const selectedDocumentIds = Array.from(new Set(
     (Array.isArray(document_ids) ? document_ids : document_id ? [document_id] : [])
@@ -784,6 +815,8 @@ app.post("/generate", async (req, res) => {
       !Number.isInteger(item.points) || item.points < 1)) {
     return res.status(400).json({ error: "invalid question distribution" });
   }
+  const selectedTopics = splitTopicList(topic, topics);
+  const generationDist = splitDistributionByTopics(dist, selectedTopics);
 
   try {
     const args: unknown[] = [subject_id];
@@ -797,14 +830,14 @@ app.post("/generate", async (req, res) => {
     if (Number(chunks[0]?.count || 0) === 0) {
       return res.status(422).json({ error: "No ready uploaded document is available for grounded generation." });
     }
-    const requested = dist.reduce((sum, item) => sum + item.count, 0);
+    const requested = generationDist.reduce((sum, item) => sum + item.count, 0);
     const rows = await query<{ id: string }>(
       `INSERT INTO generation_jobs (subject_id, status, requested) VALUES ($1,'running',$2) RETURNING id`,
       [subject_id, requested]
     );
     const jobId = rows[0].id;
     res.status(202).json({ job_id: jobId, requested });
-    runGeneration(jobId, subject_id, selectedDocumentIds, topic || "", dist).catch(async (e) => {
+    runGeneration(jobId, subject_id, selectedDocumentIds, selectedTopics.join("; "), generationDist).catch(async (e) => {
       console.error("generation job failed", e);
       await query(
         `UPDATE generation_jobs SET status='error', error=$2, finished_at=now() WHERE id=$1`,

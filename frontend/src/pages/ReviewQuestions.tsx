@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import Layout, { Icon } from "../components/Layout";
+import QuestionPrompt, { QUESTION_IMAGE_TOKEN, insertQuestionImageToken } from "../components/QuestionPrompt";
 import { api, Subject, Question } from "../api";
 
 function asText(v: unknown): string {
@@ -33,6 +34,17 @@ interface Draft {
   answer: any;
 }
 
+interface BankGroup {
+  group_type: "exam" | "generated";
+  title: string;
+  exam_id?: string;
+  status?: string;
+  exam_mode?: "take_home" | "live";
+  questions: Question[];
+}
+
+type ReviewQuestion = Question & { source_kind: "generated" | "bank"; bank_title?: string };
+
 interface ReviewQuestionsProps { embedded?: boolean; subjectId?: string }
 
 export default function ReviewQuestions({ embedded = false, subjectId: controlledSubjectId }: ReviewQuestionsProps = {}) {
@@ -41,15 +53,18 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
   const [localSubjectId, setLocalSubjectId] = useState("");
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [selectedBank, setSelectedBank] = useState<Record<string, boolean>>({});
   const [examTitle, setExamTitle] = useState("");
   const [examMode, setExamMode] = useState<"take_home" | "live">("take_home");
   const [durationMin, setDurationMin] = useState(60);
+  const [startsAt, setStartsAt] = useState("");
   const [dueAt, setDueAt] = useState("");
   const [accessCode, setAccessCode] = useState("");
   const [orderMode, setOrderMode] = useState<"current" | "type" | "shuffle">("current");
   const [shuffledIds, setShuffledIds] = useState<string[]>([]);
   const [showPreview, setShowPreview] = useState(false);
   const [msg, setMsg] = useState("");
+  const promptRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
   const { data: subjects = [] } = useQuery({
     queryKey: ["subjects"],
@@ -67,7 +82,28 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
     queryFn: () => api.get<Question[]>(`/subjects/${sid}/generated?status=approved`),
     enabled: !!sid,
   });
+  const { data: bankData } = useQuery<{ groups: BankGroup[] }>({
+    queryKey: ["question-bank", sid],
+    queryFn: () => api.get<{ groups: BankGroup[] }>(`/subjects/${sid}/question-bank`),
+    enabled: !!sid,
+  });
   const questions = useMemo(() => [...pending, ...approved], [pending, approved]);
+  const generatedReviewQuestions = useMemo<ReviewQuestion[]>(
+    () => questions.map((question) => ({ ...question, source_kind: "generated" })),
+    [questions],
+  );
+  const bankGroups = useMemo(
+    () => (bankData?.groups || []).filter((group) => group.group_type === "exam" && group.questions.length > 0),
+    [bankData],
+  );
+  const bankQuestions = useMemo<ReviewQuestion[]>(
+    () => bankGroups.flatMap((group) => group.questions.map((question) => ({
+      ...question,
+      source_kind: "bank" as const,
+      bank_title: group.title,
+    }))),
+    [bankGroups],
+  );
 
   // Seed editable drafts from loaded questions.
   useEffect(() => {
@@ -87,10 +123,31 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
     });
   }, [questions]);
 
-  useEffect(() => { setSelected({}); }, [sid]);
+  useEffect(() => {
+    setSelected({});
+    setSelectedBank({});
+  }, [sid]);
 
   const setDraft = (id: string, patch: Partial<Draft>) =>
     setDrafts((d) => ({ ...d, [id]: { ...d[id], ...patch } }));
+
+  const insertInlineImage = (question: Question) => {
+    const draft = drafts[question.id] || {
+      prompt: asText(question.prompt),
+      points: question.points ?? 1,
+      options: question.options ?? null,
+      answer: question.answer ?? {},
+    };
+    const input = promptRefs.current[question.id];
+    const nextPrompt = insertQuestionImageToken(draft.prompt, input?.selectionStart, input?.selectionEnd);
+    setDraft(question.id, { prompt: nextPrompt });
+    requestAnimationFrame(() => {
+      const current = promptRefs.current[question.id];
+      current?.focus();
+      const tokenIndex = nextPrompt.indexOf(QUESTION_IMAGE_TOKEN);
+      if (current && tokenIndex >= 0) current.setSelectionRange(tokenIndex, tokenIndex + QUESTION_IMAGE_TOKEN.length);
+    });
+  };
 
   const save = useMutation({
     mutationFn: ({ id, d }: { id: string; d: Draft }) =>
@@ -142,22 +199,25 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
   });
 
   const createExam = useMutation({
-    mutationFn: ({ ids, publish }: { ids: string[]; publish: boolean }) =>
+    mutationFn: ({ refs, publish }: { refs: { id: string; source: "generated" | "bank" }[]; publish: boolean }) =>
       api.post<{ id: string; questions_added: number }>("/exams", {
         subject_id: sid,
         title: examTitle,
         exam_mode: examMode,
         duration_min: durationMin,
+        starts_at: examMode === "take_home" && startsAt ? new Date(startsAt).toISOString() : null,
         due_at: dueAt ? new Date(dueAt).toISOString() : null,
         access_code: examMode === "live" ? accessCode.trim() : "",
         publish,
-        question_ids: ids,
+        question_refs: refs,
       }),
     onSuccess: (r, variables) => {
       setMsg(`${examMode === "live" ? "Live" : "Take-home"} quiz ${variables.publish ? "published" : "saved as a draft"} with ${r.questions_added} question(s).`);
       setShowPreview(false);
       setSelected({});
+      setSelectedBank({});
       qc.invalidateQueries({ queryKey: ["generated", sid] });
+      qc.invalidateQueries({ queryKey: ["question-bank", sid] });
       qc.invalidateQueries({ queryKey: ["exams"] });
       if (variables.publish) {
         navigate(`/subjects/${sid}`);
@@ -166,9 +226,48 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
     onError: (error: Error) => setMsg(`Exam creation failed: ${error.message}`),
   });
 
+  const uploadQuestionImage = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File }) =>
+      api.upload<{ image_url: string }>(`/generated/${id}/image`, file),
+    onSuccess: async (_result, variables) => {
+      const question = questions.find((item) => item.id === variables.id);
+      if (question) {
+        const draft = drafts[question.id] || {
+          prompt: asText(question.prompt),
+          points: question.points ?? 1,
+          options: question.options ?? null,
+          answer: question.answer ?? {},
+        };
+        const input = promptRefs.current[question.id];
+        const nextPrompt = insertQuestionImageToken(draft.prompt, input?.selectionStart, input?.selectionEnd);
+        setDraft(question.id, { prompt: nextPrompt });
+        await api.patch(`/generated/${question.id}`, { prompt: nextPrompt });
+      }
+      setMsg("Question image inserted.");
+      qc.invalidateQueries({ queryKey: ["generated", sid] });
+      qc.invalidateQueries({ queryKey: ["question-bank", sid] });
+    },
+    onError: (error: Error) => setMsg(`Image upload failed: ${error.message}`),
+  });
+
+  const removeQuestionImage = useMutation({
+    mutationFn: (id: string) => api.del(`/generated/${id}/image`),
+    onSuccess: () => {
+      setMsg("Question image removed.");
+      qc.invalidateQueries({ queryKey: ["generated", sid] });
+      qc.invalidateQueries({ queryKey: ["question-bank", sid] });
+    },
+    onError: (error: Error) => setMsg(`Remove image failed: ${error.message}`),
+  });
+
   const chosen = Object.keys(selected).filter((k) => selected[k]);
+  const chosenBank = Object.keys(selectedBank).filter((k) => selectedBank[k]);
+  const totalChosen = chosen.length + chosenBank.length;
   const orderedQuestions = useMemo(() => {
-    const included = questions.filter((question) => selected[question.id]);
+    const included = [
+      ...generatedReviewQuestions.filter((question) => selected[question.id]),
+      ...bankQuestions.filter((question) => selectedBank[question.id]),
+    ];
     if (orderMode === "type") {
       return [...included].sort((a, b) => {
         const ai = typeOrder.indexOf(a.type);
@@ -181,17 +280,30 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
       return [...included].sort((a, b) => (rank.get(a.id) ?? 9999) - (rank.get(b.id) ?? 9999));
     }
     return included;
-  }, [questions, selected, orderMode, shuffledIds]);
-  const orderedIds = orderedQuestions.map((question) => question.id);
+  }, [generatedReviewQuestions, bankQuestions, selected, selectedBank, orderMode, shuffledIds]);
+  const orderedRefs = orderedQuestions.map((question) => ({ id: question.id, source: question.source_kind }));
 
   const shuffleQuestions = () => {
-    const ids = questions.filter((question) => selected[question.id]).map((question) => question.id);
+    const ids = [
+      ...generatedReviewQuestions.filter((question) => selected[question.id]).map((question) => question.id),
+      ...bankQuestions.filter((question) => selectedBank[question.id]).map((question) => question.id),
+    ];
     for (let index = ids.length - 1; index > 0; index--) {
       const swapWith = Math.floor(Math.random() * (index + 1));
       [ids[index], ids[swapWith]] = [ids[swapWith], ids[index]];
     }
     setShuffledIds(ids);
     setOrderMode("shuffle");
+  };
+
+  const toggleBankGroup = (group: BankGroup) => {
+    const ids = group.questions.map((question) => question.id);
+    const allSelected = ids.every((id) => selectedBank[id]);
+    setSelectedBank((current) => {
+      const next = { ...current };
+      ids.forEach((id) => { next[id] = !allSelected; });
+      return next;
+    });
   };
 
   const content = (
@@ -214,8 +326,8 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
       {/* Compact review actions. Exam settings live in the creation preview. */}
       <div className="flex flex-wrap items-center gap-3 bg-surface-container-lowest border border-outline-variant rounded-xl p-4 mb-6">
         <div className="mr-auto">
-          <p className="font-semibold text-on-surface">{chosen.length} question{chosen.length === 1 ? "" : "s"} included</p>
-          <p className="text-xs text-on-surface-variant">Select the questions you want, then review the exam.</p>
+          <p className="font-semibold text-on-surface">{totalChosen} question{totalChosen === 1 ? "" : "s"} included</p>
+          <p className="text-xs text-on-surface-variant">Select generated questions or reuse questions from previous exams.</p>
         </div>
         <button onClick={() => approveAll.mutate()} disabled={approveAll.isPending || pending.length === 0}
           className="px-5 py-2 border border-secondary text-secondary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
@@ -227,7 +339,7 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
           className="px-5 py-2 border border-primary text-primary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
           Include all ({questions.length})
         </button>
-        <button onClick={() => setSelected({})} disabled={chosen.length === 0}
+        <button onClick={() => { setSelected({}); setSelectedBank({}); }} disabled={totalChosen === 0}
           className="px-5 py-2 border border-outline-variant text-on-surface-variant rounded-lg font-semibold whitespace-nowrap disabled:opacity-50">
           Uninclude all
         </button>
@@ -239,7 +351,7 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
           className="px-5 py-2 border border-error text-error rounded-lg font-semibold whitespace-nowrap hover:bg-error-container disabled:opacity-50">
           {deleteAll.isPending ? "Deleting…" : `Delete all (${questions.length})`}
         </button>
-        <button onClick={() => setShowPreview(true)} disabled={chosen.length === 0}
+        <button onClick={() => setShowPreview(true)} disabled={totalChosen === 0}
           className="px-6 py-2 bg-primary text-on-primary rounded-lg font-semibold whitespace-nowrap disabled:opacity-50 flex items-center gap-2">
           <Icon name="arrow_forward" className="text-[18px]" /> Create exam
         </button>
@@ -299,10 +411,19 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
                 {/* Question text */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-outline">Question Text</label>
-                  <textarea rows={2} value={d.prompt}
+                  <textarea ref={(node) => { promptRefs.current[q.id] = node; }} rows={2} value={d.prompt}
                     onChange={(e) => setDraft(q.id, { prompt: e.target.value })}
                     className="w-full bg-surface border border-outline-variant rounded-lg p-3 text-body-md focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none" />
                 </div>
+
+                <QuestionImageEditor
+                  question={q}
+                  uploading={uploadQuestionImage.isPending}
+                  removing={removeQuestionImage.isPending}
+                  onUpload={(file) => uploadQuestionImage.mutate({ id: q.id, file })}
+                  onInsert={() => insertInlineImage(q)}
+                  onRemove={() => removeQuestionImage.mutate(q.id)}
+                />
 
                 {/* Answer editor by type */}
                 <AnswerEditor q={q} draft={d} setDraft={(p) => setDraft(q.id, p)} />
@@ -339,6 +460,99 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
           <p className="text-on-surface-variant">No generated questions yet. Use the generator above.</p>
         )}
       </div>
+
+      <section className="mt-8 bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
+        <div className="px-6 py-4 bg-surface-container-low border-b border-outline-variant flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <Icon name="history_edu" className="text-secondary" />
+              <h3 className="font-headline text-lg font-bold text-primary">Reuse Previous Exam Questions</h3>
+            </div>
+            <p className="text-sm text-on-surface-variant mt-1">
+              Add questions from earlier quizzes when building finals or long exams.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setShowPreview(true)}
+              disabled={totalChosen === 0}
+              className="px-4 py-2 bg-primary text-on-primary rounded-lg text-sm font-semibold disabled:opacity-50 flex items-center gap-2">
+              <Icon name="arrow_forward" className="text-[18px]" /> Create exam
+            </button>
+            <button
+              onClick={() => setSelectedBank(Object.fromEntries(bankQuestions.map((question) => [question.id, true])))}
+              disabled={bankQuestions.length === 0 || chosenBank.length === bankQuestions.length}
+              className="px-4 py-2 border border-primary text-primary rounded-lg text-sm font-semibold disabled:opacity-50">
+              Select all ({bankQuestions.length})
+            </button>
+            <button
+              onClick={() => setSelectedBank({})}
+              disabled={chosenBank.length === 0}
+              className="px-4 py-2 border border-outline-variant text-on-surface-variant rounded-lg text-sm font-semibold disabled:opacity-50">
+              Deselect all
+            </button>
+          </div>
+        </div>
+        {bankGroups.length === 0 ? (
+          <p className="p-6 text-sm text-on-surface-variant">No previous exam questions yet.</p>
+        ) : (
+          <div className="divide-y divide-outline-variant">
+            {bankGroups.map((group) => {
+              const groupIds = group.questions.map((question) => question.id);
+              const selectedCount = groupIds.filter((id) => selectedBank[id]).length;
+              const allSelected = selectedCount === groupIds.length;
+              return (
+                <div key={group.exam_id || group.title} className="p-5">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+                    <div>
+                      <h4 className="font-headline text-base font-bold text-primary">{group.title}</h4>
+                      <p className="text-xs text-on-surface-variant">
+                        {group.questions.length} question{group.questions.length === 1 ? "" : "s"} - {selectedCount} selected
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => toggleBankGroup(group)}
+                      className={`px-4 py-2 rounded-lg text-sm font-semibold border ${allSelected ? "border-outline-variant text-on-surface-variant" : "border-secondary text-secondary"}`}>
+                      {allSelected ? "Deselect quiz" : "Select quiz"}
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {group.questions.map((question, index) => {
+                      const isBankSelected = !!selectedBank[question.id];
+                      return (
+                        <label key={question.id}
+                          className={`flex items-start gap-3 border rounded-lg p-4 cursor-pointer ${isBankSelected ? "border-secondary bg-secondary-container/20" : "border-outline-variant bg-white"}`}>
+                          <input
+                            type="checkbox"
+                            checked={isBankSelected}
+                            onChange={(event) => setSelectedBank((current) => ({ ...current, [question.id]: event.target.checked }))}
+                            className="mt-1"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
+                              <span className="text-xs font-bold text-on-surface-variant">Q{index + 1}</span>
+                              <span className="px-2 py-0.5 rounded-full bg-surface-container-high text-xs font-semibold text-on-surface-variant">{typeLabel[question.type] || asText(question.type)}</span>
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${diffStyle[question.difficulty] || "bg-surface-container-high"}`}>{asText(question.difficulty)}</span>
+                              <span className="px-2 py-0.5 rounded-full bg-surface-container-high text-xs font-semibold text-on-surface-variant">{question.points} pts</span>
+                            </div>
+                            <QuestionPrompt
+                              prompt={question.prompt}
+                              imageUrl={question.image_url}
+                              className="space-y-2 text-sm font-semibold text-on-surface leading-6"
+                              imageWrapperClassName="mt-3 rounded-lg border border-outline-variant bg-surface-container-low p-2"
+                            />
+                            <PreviewOptions question={question} options={question.options} answer={question.answer} compact />
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {showPreview && (
         <div className="fixed inset-0 z-50 bg-primary/35 backdrop-blur-sm p-4 md:p-8 overflow-y-auto" onClick={() => setShowPreview(false)}>
@@ -379,6 +593,14 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
                     <input type="number" min={1} value={durationMin} onChange={(event) => setDurationMin(Math.max(1, Number(event.target.value)))}
                       className="w-full border border-outline-variant rounded-lg px-3 py-2 bg-white font-normal" />
                   </label>
+                  {examMode === "take_home" && (
+                    <label className="space-y-1 text-sm font-semibold text-on-surface">
+                      Opens at (optional)
+                      <input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)}
+                        className="w-full border border-outline-variant rounded-lg px-3 py-2 bg-white font-normal" />
+                      <span className="block text-xs font-normal text-on-surface-variant">Leave blank to open immediately.</span>
+                    </label>
+                  )}
                   <label className="space-y-1 text-sm font-semibold text-on-surface">
                     Due date (optional)
                     <input type="datetime-local" value={dueAt} onChange={(event) => setDueAt(event.target.value)}
@@ -427,8 +649,15 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
                     <div className="flex items-start gap-4">
                       <span className="w-8 h-8 rounded-full bg-secondary-container text-on-secondary-container flex items-center justify-center font-bold text-sm shrink-0">{index + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <div className="flex justify-between gap-3"><p className="font-semibold text-on-surface leading-6">{draft.prompt}</p><span className="text-xs text-on-surface-variant whitespace-nowrap">{draft.points} pts</span></div>
-                        <PreviewOptions question={question} options={draft.options} />
+                        <div className="flex justify-between gap-3">
+                          <QuestionPrompt
+                            prompt={draft.prompt}
+                            imageUrl={question.image_url}
+                            className="space-y-2 font-semibold text-on-surface leading-6"
+                          />
+                          <span className="text-xs text-on-surface-variant whitespace-nowrap">{draft.points} pts</span>
+                        </div>
+                        <PreviewOptions question={question} options={draft.options} answer={draft.answer} />
                       </div>
                     </div>
                   </article>
@@ -440,10 +669,10 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
               <div className="flex gap-3">
                 <button onClick={() => setShowPreview(false)} disabled={createExam.isPending}
                   className="border border-outline-variant text-on-surface-variant px-5 py-2 rounded-lg font-semibold disabled:opacity-50">Cancel</button>
-                <button onClick={() => createExam.mutate({ ids: orderedIds, publish: false })}
+                <button onClick={() => createExam.mutate({ refs: orderedRefs, publish: false })}
                   disabled={createExam.isPending || !examTitle.trim() || (examMode === "live" && !accessCode.trim())}
                   className="border border-primary text-primary px-5 py-2 rounded-lg font-semibold disabled:opacity-50">Save as draft</button>
-                <button onClick={() => createExam.mutate({ ids: orderedIds, publish: true })}
+                <button onClick={() => createExam.mutate({ refs: orderedRefs, publish: true })}
                   disabled={createExam.isPending || !examTitle.trim() || (examMode === "live" && !accessCode.trim())}
                   className="bg-primary text-on-primary px-6 py-2 rounded-lg font-semibold disabled:opacity-50">
                   {createExam.isPending ? "Creating..." : "Create and publish"}
@@ -458,20 +687,135 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
   return embedded ? content : <Layout title="Review Questions">{content}</Layout>;
 }
 
-function PreviewOptions({ question, options }: { question: Question; options: any }) {
+function QuestionImage({ imageUrl, compact = false }: { imageUrl?: string | null; compact?: boolean }) {
+  if (!imageUrl) return null;
+  return (
+    <div className={`${compact ? "mt-3" : "mt-4"} rounded-lg border border-outline-variant bg-surface-container-low p-2`}>
+      <img
+        src={imageUrl}
+        alt="Question diagram"
+        className="max-h-72 w-full rounded-md object-contain"
+      />
+    </div>
+  );
+}
+
+function QuestionImageEditor({ question, uploading, removing, onUpload, onInsert, onRemove }: {
+  question: Question;
+  uploading: boolean;
+  removing: boolean;
+  onUpload: (file: File) => void;
+  onInsert: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-outline-variant bg-surface-container-low p-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant">Question image / diagram</p>
+          <p className="text-xs text-on-surface-variant mt-1">Optional. Use this for figures, circuits, graphs, automata diagrams, or tables.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-secondary px-3 py-2 text-sm font-semibold text-secondary hover:bg-secondary-container/30">
+            <Icon name="image" className="text-[18px]" />
+            {question.image_url ? "Replace image" : "Attach image"}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              disabled={uploading}
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) onUpload(file);
+                event.target.value = "";
+              }}
+            />
+          </label>
+          {question.image_url && (
+            <button
+              type="button"
+              onClick={onInsert}
+              className="inline-flex items-center gap-2 rounded-lg border border-primary px-3 py-2 text-sm font-semibold text-primary hover:bg-primary-container/20"
+            >
+              <Icon name="add_photo_alternate" className="text-[18px]" /> Insert in text
+            </button>
+          )}
+          {question.image_url && (
+            <button
+              type="button"
+              onClick={onRemove}
+              disabled={removing}
+              className="inline-flex items-center gap-2 rounded-lg border border-error px-3 py-2 text-sm font-semibold text-error hover:bg-error-container disabled:opacity-50"
+            >
+              <Icon name="delete" className="text-[18px]" /> Remove
+            </button>
+          )}
+        </div>
+      </div>
+      <QuestionImage imageUrl={question.image_url} compact />
+    </div>
+  );
+}
+
+function PreviewOptions({ question, options, answer, compact = false }: { question: Question; options: any; answer?: any; compact?: boolean }) {
   if (question.type === "mcq" && Array.isArray(options)) {
-    return <div className="grid sm:grid-cols-2 gap-2 mt-4">{options.map((option, index) =>
-      <div key={index} className="border border-outline-variant rounded-lg px-3 py-2 text-sm text-on-surface-variant flex gap-2"><span className="font-bold">{String.fromCharCode(65 + index)}.</span>{asText(option)}</div>
-    )}</div>;
+    const correct = Number(answer?.correct_index);
+    return (
+      <div className={`grid sm:grid-cols-2 gap-2 ${compact ? "mt-3" : "mt-4"}`}>
+        {options.map((option, index) => {
+          const isCorrect = correct === index;
+          return (
+            <div key={index} className={`border rounded-lg px-3 py-2 text-sm flex gap-2 ${isCorrect ? "border-secondary bg-secondary-container/30 text-secondary font-semibold" : "border-outline-variant text-on-surface-variant"}`}>
+              <span className="font-bold">{String.fromCharCode(65 + index)}.</span>
+              <span className="flex-1">{asText(option)}</span>
+              {isCorrect && <span className="text-[10px] uppercase tracking-wide font-bold">Correct</span>}
+            </div>
+          );
+        })}
+      </div>
+    );
   }
   if (question.type === "true_false") {
-    return <div className="flex gap-2 mt-4"><span className="border border-outline-variant rounded-lg px-5 py-2 text-sm">True</span><span className="border border-outline-variant rounded-lg px-5 py-2 text-sm">False</span></div>;
+    const correct = answer?.correct === true;
+    return (
+      <div className={`flex gap-2 ${compact ? "mt-3" : "mt-4"}`}>
+        {[true, false].map((value) => (
+          <span key={String(value)} className={`border rounded-lg px-5 py-2 text-sm ${correct === value ? "border-secondary bg-secondary-container/30 text-secondary font-semibold" : "border-outline-variant text-on-surface-variant"}`}>
+            {value ? "True" : "False"}{correct === value ? " - Correct" : ""}
+          </span>
+        ))}
+      </div>
+    );
   }
   if (question.type === "matching" && options?.left && options?.right) {
-    return <div className="grid grid-cols-2 gap-3 mt-4 text-sm"><div className="space-y-1">{options.left.map((item: unknown, index: number) => <p key={index} className="bg-surface-container-low rounded px-3 py-2">{index + 1}. {asText(item)}</p>)}</div><div className="space-y-1">{options.right.map((item: unknown, index: number) => <p key={index} className="bg-surface-container-low rounded px-3 py-2">{String.fromCharCode(65 + index)}. {asText(item)}</p>)}</div></div>;
+    const left = Array.isArray(options.left) ? options.left : [];
+    const right = Array.isArray(options.right) ? options.right : [];
+    const pairs: number[][] = Array.isArray(answer?.pairs) ? answer.pairs : [];
+    return (
+      <div className={`${compact ? "mt-3" : "mt-4"} space-y-3 text-sm`}>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">{left.map((item: unknown, index: number) => <p key={index} className="bg-surface-container-low rounded px-3 py-2">{index + 1}. {asText(item)}</p>)}</div>
+          <div className="space-y-1">{right.map((item: unknown, index: number) => <p key={index} className="bg-surface-container-low rounded px-3 py-2">{String.fromCharCode(65 + index)}. {asText(item)}</p>)}</div>
+        </div>
+        {pairs.length > 0 && (
+          <div className="rounded-lg border border-secondary bg-secondary-container/20 p-3 text-secondary">
+            <p className="text-xs uppercase font-bold tracking-wide mb-2">Correct pairs</p>
+            <div className="space-y-1">
+              {pairs.map(([leftIndex, rightIndex], index) => (
+                <p key={index}>{asText(left[leftIndex])} {"->"} {asText(right[rightIndex])}</p>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
-  if (["fill_blank", "short_answer", "essay"].includes(question.type)) {
-    return <div className="mt-4 border-b border-outline-variant h-8 text-xs text-on-surface-variant">Student answer</div>;
+  if (question.type === "fill_blank" || question.type === "short_answer") {
+    const accepted = Array.isArray(answer?.accepted) ? answer.accepted.map(asText).join(", ") : asText(answer?.accepted || answer?.text || answer);
+    return <p className={`${compact ? "mt-3" : "mt-4"} rounded-lg border border-secondary bg-secondary-container/20 px-3 py-2 text-sm text-secondary font-semibold`}>Correct answer: {accepted || "Not set"}</p>;
+  }
+  if (question.type === "essay") {
+    return <p className={`${compact ? "mt-3" : "mt-4"} rounded-lg border border-outline-variant bg-surface-container-low px-3 py-2 text-sm text-on-surface-variant`}>Rubric: {asText(answer?.rubric || answer) || "Not set"}</p>;
   }
   return null;
 }

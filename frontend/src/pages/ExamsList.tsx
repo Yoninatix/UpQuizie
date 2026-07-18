@@ -54,7 +54,9 @@ export default function ExamsList() {
           {active.map((e) => (
             <div key={e.id} className="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 flex flex-col">
               <div className="flex justify-between items-start mb-4">
-                <span className="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-xs uppercase tracking-wider">Live Now</span>
+                <span className="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-xs uppercase tracking-wider">
+                  {e.starts_at && new Date(e.starts_at).getTime() > Date.now() ? "Scheduled" : "Open"}
+                </span>
                 <Icon name="timer" className="text-secondary" />
               </div>
               <h3 className="font-headline text-lg text-primary mb-1">{e.title}</h3>
@@ -62,11 +64,19 @@ export default function ExamsList() {
               <div className="space-y-2 mb-6 text-sm text-on-surface-variant">
                 <div className="flex items-center gap-2"><Icon name="schedule" className="text-[18px]" /> {e.duration_min} minutes</div>
                 <div className="flex items-center gap-2"><Icon name="grade" className="text-[18px]" /> {e.total_points} points</div>
+                {e.starts_at && <div className="flex items-center gap-2"><Icon name="event" className="text-[18px]" /> Opens {new Date(e.starts_at).toLocaleString()}</div>}
+                {e.due_at && <div className="flex items-center gap-2"><Icon name="event_busy" className="text-[18px]" /> Due {new Date(e.due_at).toLocaleString()}</div>}
               </div>
-              <button onClick={() => nav(`/exams/${e.id}/take`)}
-                className="mt-auto w-full bg-secondary text-on-secondary py-3 rounded-lg font-semibold flex items-center justify-center gap-2">
-                Take Exam <Icon name="arrow_forward" className="text-[20px]" />
-              </button>
+              {e.starts_at && new Date(e.starts_at).getTime() > Date.now() ? (
+                <button disabled className="mt-auto w-full bg-surface-container-high text-on-surface-variant py-3 rounded-lg font-semibold">
+                  Opens later
+                </button>
+              ) : (
+                <button onClick={() => nav(`/exams/${e.id}/take`)}
+                  className="mt-auto w-full bg-secondary text-on-secondary py-3 rounded-lg font-semibold flex items-center justify-center gap-2">
+                  Take Exam <Icon name="arrow_forward" className="text-[20px]" />
+                </button>
+              )}
             </div>
           ))}
           {active.length === 0 && <p className="text-on-surface-variant">No active exams.</p>}
@@ -143,6 +153,8 @@ function ExamCard({ e }: { e: Exam }) {
       <div className="space-y-2 text-sm text-on-surface-variant mb-4">
         <div className="flex items-center gap-2"><Icon name="schedule" className="text-[18px]" /> {e.duration_min} min</div>
         <div className="flex items-center gap-2"><Icon name="grade" className="text-[18px]" /> {e.total_points} points</div>
+        {e.starts_at && <div className="flex items-center gap-2"><Icon name="event" className="text-[18px]" /> Opens {new Date(e.starts_at).toLocaleString()}</div>}
+        {e.due_at && <div className="flex items-center gap-2"><Icon name="event_busy" className="text-[18px]" /> Due {new Date(e.due_at).toLocaleString()}</div>}
       </div>
       {e.status === "published" ? (
         <button disabled

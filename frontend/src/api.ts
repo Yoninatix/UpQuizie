@@ -39,9 +39,10 @@ export const api = {
   patch: <T>(p: string, body?: unknown) =>
     request<T>(p, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
   del: <T>(p: string) => request<T>(p, { method: "DELETE" }),
-  upload: <T>(p: string, file: File) => {
+  upload: <T>(p: string, file: File, fields: Record<string, string> = {}) => {
     const fd = new FormData();
     fd.append("file", file);
+    Object.entries(fields).forEach(([key, value]) => fd.append(key, value));
     return request<T>(p, { method: "POST", body: fd });
   },
 };
@@ -77,6 +78,7 @@ export interface Exam {
   live_state: "waiting" | "started" | "ended";
   access_code?: string | null;
   live_started_at?: string | null;
+  starts_at?: string | null;
   due_at?: string | null;
 }
 export interface Question {
@@ -88,6 +90,7 @@ export interface Question {
   options: any;
   answer?: any;
   topic?: string;
+  image_url?: string | null;
   source_ref?: string;
   status?: string;
   position?: number;
@@ -118,6 +121,7 @@ export interface DocumentMeta {
   id: string;
   filename: string;
   file_type?: string;
+  module_label: string;
   size_bytes: number;
   status: string;
   error?: string;
