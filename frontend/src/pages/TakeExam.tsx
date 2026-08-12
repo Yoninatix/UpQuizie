@@ -108,10 +108,11 @@ export default function TakeExam() {
   const answeredCount = questions.reduce((n, qq) => {
     const r = responses[qq.id];
     const answered =
-      r != null && (r.index != null || r.value != null || (typeof r.text === "string" && r.text.trim() !== "") ||
+      r != null && (r.index != null || (Array.isArray(r.indices) && r.indices.length > 0) || r.value != null || (typeof r.text === "string" && r.text.trim() !== "") ||
         (Array.isArray(r.pairs) && r.pairs.length === (qq.options?.left?.length || 0) && r.pairs.length > 0));
     return answered ? n + 1 : n;
   }, 0);
+  const unansweredCount = questions.length - answeredCount;
   const answeredRef = useRef(0);
   answeredRef.current = answeredCount;
 
@@ -232,8 +233,6 @@ export default function TakeExam() {
                 <Icon name="timer" className="text-base" /> {fmt(secondsLeft)}
               </span>
             )}
-            <button onClick={() => { if (confirm("Submit your exam?")) submit(); }}
-              className="bg-primary text-on-primary px-5 py-2 rounded-lg text-sm font-semibold">Submit Exam</button>
           </div>
         </div>
 
@@ -257,12 +256,23 @@ export default function TakeExam() {
 
             {q.type === "mcq" && Array.isArray(q.options) && (
               <div className="space-y-2.5">
-                {q.options.map((opt: any, i: number) => (
-                  <label key={i} className={`flex items-center gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-all ${responses[q.id]?.index === i ? "border-secondary bg-secondary-container/20" : "border-outline-variant hover:bg-surface-container-low"}`}>
-                    <input type="radio" name={q.id} checked={responses[q.id]?.index === i} onChange={() => setResp(q.id, { index: i })} />
-                    <span>{typeof opt === "string" ? opt : JSON.stringify(opt)}</span>
-                  </label>
-                ))}
+                {q.options.map((opt: any, i: number) => {
+                  const selected = Array.isArray(responses[q.id]?.indices) ? responses[q.id].indices.includes(i) : responses[q.id]?.index === i;
+                  return (
+                    <label key={i} className={`flex items-center gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-all ${selected ? "border-secondary bg-secondary-container/20" : "border-outline-variant hover:bg-surface-container-low"}`}>
+                      <input type="checkbox" name={q.id} checked={selected} onChange={() => {
+                        const current = Array.isArray(responses[q.id]?.indices) ? [...responses[q.id].indices] :
+                          responses[q.id]?.index != null ? [responses[q.id].index] : [];
+                        if (current.includes(i)) {
+                          setResp(q.id, { indices: current.filter((idx) => idx !== i) });
+                        } else {
+                          setResp(q.id, { indices: [...current, i] });
+                        }
+                      }} />
+                      <span>{typeof opt === "string" ? opt : JSON.stringify(opt)}</span>
+                    </label>
+                  );
+                })}
               </div>
             )}
 
@@ -303,17 +313,23 @@ export default function TakeExam() {
               className="flex items-center gap-2 px-5 py-2.5 border border-primary text-primary rounded-lg text-sm font-semibold disabled:opacity-40">
               <Icon name="arrow_back" className="text-lg" /> Previous
             </button>
-            {idx < questions.length - 1 ? (
-              <button onClick={() => setIdx((i) => Math.min(questions.length - 1, i + 1))}
-                className="flex items-center gap-2 px-6 py-2.5 bg-primary text-on-primary rounded-lg text-sm font-semibold">
-                Next Question <Icon name="arrow_forward" className="text-lg" />
-              </button>
-            ) : (
-              <button onClick={() => { if (confirm("Submit your exam?")) submit(); }} disabled={busy}
+            <div className="flex items-center gap-3">
+              {idx < questions.length - 1 && (
+                <button onClick={() => setIdx((i) => Math.min(questions.length - 1, i + 1))}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-primary text-on-primary rounded-lg text-sm font-semibold">
+                  Next Question <Icon name="arrow_forward" className="text-lg" />
+                </button>
+              )}
+              <button onClick={() => {
+                if (unansweredCount > 0) {
+                  if (!confirm(`You have ${unansweredCount} unanswered question${unansweredCount === 1 ? "" : "s"}. Submit anyway?`)) return;
+                }
+                submit();
+              }} disabled={busy}
                 className="px-6 py-2.5 bg-secondary text-on-secondary rounded-lg text-sm font-semibold disabled:opacity-60">
-                {busy ? "Submitting…" : "Finish & Submit"}
+                {busy ? "Submitting…" : "Submit Exam"}
               </button>
-            )}
+            </div>
           </div>
         )}
       </div>

@@ -163,8 +163,13 @@ export default function SubjectDetail() {
           </Link>
         )}
         {canManage && (
-          <Link to="/educator" className="ml-auto px-4 py-2 text-sm text-secondary font-semibold flex items-center gap-1 hover:underline">
-            <Icon name="auto_awesome" className="text-[18px]" /> Generate & review
+          <Link to={`/educator?subject_id=${id}`} className="inline-flex items-center gap-2 whitespace-nowrap px-5 py-3 border-b-2 border-transparent text-on-surface-variant font-semibold transition-colors hover:text-secondary">
+            <Icon name="auto_awesome" className="text-[20px]" /> Generate & review
+          </Link>
+        )}
+        {canManage && (
+          <Link to={`/educator?subject_id=${id}`} className="ml-auto px-4 py-2 text-sm text-secondary font-semibold flex items-center gap-1 hover:underline">
+            <Icon name="add_chart" className="text-[18px]" /> Create quiz
           </Link>
         )}
       </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Layout, { Icon } from "../components/Layout";
 import { api, Subject, DocumentMeta } from "../api";
@@ -42,11 +42,14 @@ function topicSplitPreview(dist: DistRow[], topics: string[]) {
 export default function EducatorDashboard() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { data: subjects = [] } = useQuery({ queryKey: ["subjects"], queryFn: () => api.get<Subject[]>("/subjects") });
 
-  const [subjectId, setSubjectId] = useState("");
+  const querySubjectId = searchParams.get("subject_id") ?? "";
+  const [subjectId, setSubjectId] = useState(querySubjectId);
   const [documentIds, setDocumentIds] = useState<string[]>([]);
   const [topics, setTopics] = useState<string[]>([]);
+  const [topicCounts, setTopicCounts] = useState<Record<string, number>>({});
   const [dist, setDist] = useState<DistRow[]>([{ type: "mcq", difficulty: "medium", count: 3, points: 5 }]);
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobStartedAt, setJobStartedAt] = useState<number | null>(null);
@@ -55,6 +58,14 @@ export default function EducatorDashboard() {
   const [msg, setMsg] = useState("");
 
   const sid = subjectId || subjects[0]?.id || "";
+
+  useEffect(() => {
+    if (querySubjectId) {
+      setSubjectId(querySubjectId);
+      setDocumentIds([]);
+      setTopics([]);
+    }
+  }, [querySubjectId]);
 
   const { data: documents = [] } = useQuery({
     queryKey: ["documents", sid],
@@ -83,7 +94,7 @@ export default function EducatorDashboard() {
 
   const start = useMutation({
     mutationFn: () => api.post<{ job_id: string }>(`/subjects/${sid}/generate`, {
-      topic: topics.join("; "), topics, document_ids: selectedDocumentIds, distribution: dist,
+      topic: topics.join("; "), topics, topic_counts: topicCounts, document_ids: selectedDocumentIds, distribution: dist,
     }),
     onSuccess: (r) => { setJobId(r.job_id); setJobStartedAt(Date.now()); setJobEndedAt(null); setMsg(""); },
     onError: (e: any) => setMsg(`Error: ${e.message}`),
@@ -91,6 +102,14 @@ export default function EducatorDashboard() {
 
   const running = job?.status === "running" || start.isPending;
   const updateRow = (i: number, patch: Partial<DistRow>) => setDist((d) => d.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const updateTopics = (nextTopics: string[]) => {
+    setTopics(nextTopics);
+    setTopicCounts((prev) => {
+      const next: Record<string, number> = {};
+      nextTopics.forEach((topic) => { next[topic] = prev[topic] ?? 1; });
+      return next;
+    });
+  };
   const total = dist.reduce((s, r) => s + (Number(r.count) || 0), 0);
   const topicPlan = topicSplitPreview(dist, topics);
 
@@ -146,7 +165,7 @@ export default function EducatorDashboard() {
                 <div>
                   <label className="text-sm font-semibold text-on-surface">Topic / focus</label>
                   <TopicDropdown options={generationOptions?.topics || []} selected={topics}
-                    onChange={setTopics} disabled={selectedDocumentIds.length === 0} />
+                    onChange={updateTopics} disabled={selectedDocumentIds.length === 0} />
                 </div>
               </div>
               {sid && readyDocuments.length === 0 && (
@@ -163,6 +182,28 @@ export default function EducatorDashboard() {
                     Questions will be split across selected topics: {topicPlan.map((item) => `${item.topic}: ${item.count}`).join(" | ")}
                   </p>
                 )}
+              {topics.length > 0 && (
+                <div className="rounded-xl border border-outline-variant bg-surface-container-low p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-semibold">Questions per selected topic</p>
+                    <span className="text-xs text-on-surface-variant">Set counts to control topic totals</span>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {topics.map((topic) => (
+                      <label key={topic} className="space-y-1 text-sm">
+                        <span className="font-semibold truncate">{topic}</span>
+                        <input type="number" min={1} value={topicCounts[topic] ?? 1}
+                          onChange={(event) => {
+                            const count = Math.max(1, Number(event.target.value) || 1);
+                            setTopicCounts((prev) => ({ ...prev, [topic]: count }));
+                          }}
+                          className="w-full border border-outline-variant rounded-lg px-3 py-2"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
                 <div className="space-y-3">
                   {dist.map((row, i) => (
                     <div key={i} className="flex items-end gap-3 bg-surface-container-low p-3 rounded-lg border border-outline-variant">

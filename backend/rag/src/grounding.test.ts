@@ -212,6 +212,15 @@ test("accepts a fill-blank whose accepted answer appears in the evidence quote",
   assert.equal(result.valid, true);
 });
 
+test("accepts a fill-blank with multiple accepted answers", () => {
+  const result = validateGroundedQuestion({
+    type: "fill_blank", prompt: "Fill in the blank: ATP is also called _____.",
+    answer: { accepted: ["ATP", "adenosine triphosphate"] }, source_index: 1,
+    source_quote: "ATP (adenosine triphosphate) stores energy in cells.",
+  }, "fill_blank", sources);
+  assert.equal(result.valid, true);
+});
+
 test("rejects a fill-blank prompt that has no blank to complete", () => {
   const result = validateGroundedQuestion({
     type: "fill_blank", prompt: "Where does photosynthesis occur?",
@@ -230,7 +239,17 @@ test("rejects a fill-blank answer that restates a whole sentence", () => {
     source_quote: "Chlorophyll absorbs red light and blue light. Mitochondria release energy from food.",
   }, "fill_blank", sources);
   assert.equal(result.valid, false);
-  assert.match(result.reason || "", /word or short phrase/);
+  assert.match(result.reason || "", /single word, a short phrase, or a number/);
+});
+
+test("accepts a fill-blank answer that is a number", () => {
+  const result = validateGroundedQuestion({
+    type: "fill_blank", prompt: "Fill in the blank: The planet Mars is the _____ planet from the Sun.",
+    answer: { accepted: ["fourth"] },
+    source_index: 1,
+    source_quote: "The planet Mars is the fourth planet from the Sun.",
+  }, "fill_blank", sources);
+  assert.equal(result.valid, true);
 });
 
 test("rejects matching terms that are stray function words", () => {
