@@ -116,7 +116,7 @@ export default function TakeExam() {
   const answeredRef = useRef(0);
   answeredRef.current = answeredCount;
 
-  // Heartbeat: report progress + tab focus so educators can monitor the session.
+  // Heartbeat: report progress + tab focus so teachers can monitor the session.
   useEffect(() => {
     if (!attemptId) return;
     let focused = typeof document !== "undefined" ? !document.hidden : true;

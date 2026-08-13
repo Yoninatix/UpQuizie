@@ -47,6 +47,10 @@ function joinedLabel(iso?: string) {
   return "Joined " + new Date(iso).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function roleLabel(role: string) {
+  return role === "educator" ? "Teacher" : role;
+}
+
 // Page numbers with ellipsis, e.g. 1 2 3 … 125 (always keeps current visible).
 function pageItems(current: number, total: number): (number | "…")[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
@@ -223,7 +227,7 @@ export default function AdminUsers() {
             className="block w-full md:w-40 border border-outline-variant rounded-lg px-3 py-2 bg-white">
             <option value="all">All Roles</option>
             <option value="student">Student</option>
-            <option value="educator">Educator</option>
+            <option value="educator">Teacher</option>
             <option value="admin">Admin</option>
           </select>
         </label>
@@ -275,7 +279,7 @@ export default function AdminUsers() {
                 <td className="px-6 py-4 text-on-surface-variant">{u.identifier || "—"}</td>
                 <td className="px-6 py-4">
                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${roleBadge[u.role] || ""}`}>
-                    {u.role}
+                    {roleLabel(u.role)}
                   </span>
                 </td>
                 <td className="px-6 py-4">
@@ -388,7 +392,7 @@ export default function AdminUsers() {
                   <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
                     className="w-full border border-outline-variant rounded-lg px-3 py-2 bg-white">
                     <option value="student">Student</option>
-                    <option value="educator">Educator</option>
+                    <option value="educator">Teacher</option>
                     <option value="admin">Admin</option>
                   </select>
                 </label>

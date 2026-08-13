@@ -43,9 +43,6 @@ export function useAuth() {
 
   async function register(data: RegisterData) {
     const res = await api.post<{ user: User }>("/auth/register", data);
-    queryClient.clear();
-    setUser(res.user);
-    setReady(true);
     return res.user;
   }
 

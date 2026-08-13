@@ -21,7 +21,7 @@ export default function ExamsList() {
   const active = exams.filter((e) => e.status === "published");
   const completed = perf?.attempts.filter((a) => a.status !== "in_progress") || [];
 
-  // Educator/admin: simple grid of all exams.
+  // Teacher/admin: simple grid of all exams.
   if (!isStudent) {
     return (
       <Layout title="Exams">

@@ -26,7 +26,7 @@ export default function Register() {
     setBusy(true);
     try {
       await register({ ...form, role });
-      nav("/");
+      nav("/login");
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -55,7 +55,7 @@ export default function Register() {
                 role === r ? "bg-white text-primary shadow-sm" : "text-on-surface-variant"
               }`}
             >
-              {r}
+              {r === "educator" ? "Teacher" : "Student"}
             </button>
           ))}
         </div>

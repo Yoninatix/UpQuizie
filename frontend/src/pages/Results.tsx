@@ -29,7 +29,7 @@ export default function Results() {
           <h2 className="font-headline text-2xl text-primary">Assessment Submitted</h2>
           <p className="text-on-surface-variant">
             {attempt?.status === "needs_review"
-              ? "Some answers require manual grading by your educator."
+              ? "Some answers require manual grading by your teacher."
               : "Your responses have been processed."}
           </p>
         </div>

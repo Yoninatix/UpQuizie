@@ -3,7 +3,7 @@ import { useAuth } from "./auth";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import StudentDashboard from "./pages/StudentDashboard";
-import EducatorDashboard from "./pages/EducatorDashboard";
+import TeacherDashboard from "./pages/TeacherDashboard";
 import Materials from "./pages/Materials";
 import Subjects from "./pages/Subjects";
 import ExamsList from "./pages/ExamsList";
@@ -43,7 +43,7 @@ export default function App() {
       <Route path="/register" element={<Register />} />
       <Route path="/" element={<Home />} />
       <Route path="/student" element={<Protected><StudentDashboard /></Protected>} />
-      <Route path="/educator" element={<Protected><EducatorDashboard /></Protected>} />
+      <Route path="/educator" element={<Protected><TeacherDashboard /></Protected>} />
       <Route path="/materials" element={<Protected><Materials /></Protected>} />
       <Route path="/subjects/:id/materials" element={<Protected><Materials /></Protected>} />
       <Route path="/subjects/:id/enroll" element={<Protected><Enrollment /></Protected>} />
