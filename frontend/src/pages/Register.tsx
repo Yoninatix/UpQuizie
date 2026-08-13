@@ -31,14 +31,14 @@ export default function Register() {
     }
     setBusy(true);
     try {
-<<<<<<< HEAD
       const user = await register({ ...form, role });
-      const destination = user.role === "teacher" ? "/teacher" : user.role === "admin" ? "/admin/users" : "/student";
+      const destination =
+        user.role === "teacher"
+          ? "/teacher"
+          : user.role === "admin"
+            ? "/admin/users"
+            : "/student";
       nav(destination, { replace: true });
-=======
-      await register({ ...form, role });
-      nav("/login");
->>>>>>> ed8becd9d55e818c2273908b8d7b0c7490901614
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -76,7 +76,7 @@ export default function Register() {
                   : "text-on-surface-variant"
               }`}
             >
-              {r === "educator" ? "Teacher" : "Student"}
+              {r === "teacher" ? "Teacher" : "Student"}
             </button>
           ))}
         </div>
