@@ -45,6 +45,7 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/" element={<Home />} />
+<<<<<<< HEAD
       <Route
         path="/student"
         element={
@@ -193,6 +194,27 @@ export default function App() {
           </Protected>
         }
       />
+=======
+      <Route path="/student" element={<Protected><StudentDashboard /></Protected>} />
+      <Route path="/educator" element={<Protected><TeacherDashboard /></Protected>} />
+      <Route path="/materials" element={<Protected><Materials /></Protected>} />
+      <Route path="/subjects/:id/materials" element={<Protected><Materials /></Protected>} />
+      <Route path="/subjects/:id/enroll" element={<Protected><Enrollment /></Protected>} />
+      <Route path="/review" element={<Navigate to="/educator#review-questions" replace />} />
+      <Route path="/analytics" element={<Protected><Analytics /></Protected>} />
+      <Route path="/performance" element={<Protected><StudentPerformance /></Protected>} />
+      <Route path="/calendar" element={<Protected><StudentCalendar /></Protected>} />
+      <Route path="/settings" element={<Protected><Settings /></Protected>} />
+      <Route path="/sessions" element={<Protected><ExamSessions /></Protected>} />
+      <Route path="/question-bank" element={<Protected><QuestionBank /></Protected>} />
+      <Route path="/subjects" element={<Protected><Subjects /></Protected>} />
+      <Route path="/subjects/:id" element={<Protected><SubjectDetail /></Protected>} />
+      <Route path="/exams" element={<Protected><ExamsList /></Protected>} />
+      <Route path="/exams/:id/take" element={<Protected><TakeExam /></Protected>} />
+      <Route path="/exams/:id/monitor" element={<Protected><ExamMonitor /></Protected>} />
+      <Route path="/attempts/:id/results" element={<Protected><Results /></Protected>} />
+      <Route path="/admin/users" element={<Protected><AdminUsers /></Protected>} />
+>>>>>>> ed8becd9d55e818c2273908b8d7b0c7490901614
       <Route path="*" element={<Home />} />
     </Routes>
   );

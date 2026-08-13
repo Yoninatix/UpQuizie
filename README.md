@@ -1,7 +1,7 @@
 # UpQuizie
 
 An AI-assisted academic examination platform built from the UpQuiz design.
-Educators upload learning materials, generate exam questions **grounded in those
+Teachers upload learning materials, generate exam questions **grounded in those
 materials** via Retrieval-Augmented Generation (RAG), administer exams, and
 review results. Students take auto-graded exams and see their performance.
 
@@ -72,19 +72,19 @@ Open **http://localhost:8080**.
 | Email                   | Role     |
 |-------------------------|----------|
 | `admin@university.edu`  | admin    |
-| `grecia@university.edu` | educator |
+| `grecia@university.edu` | teacher |
 | `alex@university.edu`   | student  |
 
 ## The RAG pipeline (core feature, aligned to thesis Chapter IV)
 
-1. **Upload** — Educator uploads a learning material on the **Learning Materials**
+1. **Upload** — Teacher uploads a learning material on the **Learning Materials**
    page (`POST /api/subjects/:id/documents`, multipart). The Go API saves the file
    to the shared `/app/uploads` volume and records metadata in `uploaded_documents`.
 2. **Process** — The API calls the RAG service `/process`, which extracts text
    (pdf-parse / mammoth / JSZip / Tesseract OCR), splits it into **500-word chunks
    with 50-word overlap**, embeds each with `nomic-embed-text` (768-dim), stores the
    vectors in **Milvus** (IVF_FLAT, cosine) and the chunk text in `document_chunks`.
-3. **Retrieve + generate** — On the **Generate** page the educator picks a subject,
+3. **Retrieve + generate** — On the **Generate** page the teacher picks a subject,
    optional topic, and a question distribution. The RAG service embeds that query
    once (with a bounded in-memory cache for repeats), performs a cosine top-k search
    in Milvus, augments one batched **gemma3:1b** prompt with the retrieved chunks,
@@ -94,11 +94,11 @@ Open **http://localhost:8080**.
    Valid questions are linked to their source document and written to
    `generated_questions`; invalid model output uses a mechanically grounded document
    cloze fallback rather than general knowledge or placeholders.
-4. **Review** — On the **Review Questions** page the educator approves/rejects
+4. **Review** — On the **Review Questions** page the teacher approves/rejects
    pending questions and builds an exam from the approved ones (`exam_questions`).
 5. **Administer** — Students take published exams; objective items (MCQ /
    true-false / fill-blank) are auto-scored, per-topic results are written to
-   `topic_performance`, and the educator's **Analytics** page surfaces weak topics.
+   `topic_performance`, and the teacher's **Analytics** page surfaces weak topics.
 
 ## Local development (without Docker)
 

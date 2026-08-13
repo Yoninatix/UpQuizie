@@ -91,7 +91,7 @@ function toQuestionArray(parsed: any): any[] {
 function schemaFor(type: string, difficulty: string): string {
   switch (type) {
     case "mcq":
-      return `Required fields: type="mcq", difficulty="${difficulty}", topic (string), prompt (string), options (array of exactly 4 distinct phrases copied from the source, ordered as A, B, C, D), answer (object with integer correct_index from 0 to 3).`;
+      return `Required fields: type="mcq", difficulty="${difficulty}", topic (string), prompt (string), options (array of exactly 4 distinct phrases copied from the source, ordered as A, B, C, D), answer (object with integer correct_index from 0 to 3 or array correct_indices containing one or more such values).`;
     case "true_false":
       return `Required fields: type="true_false", difficulty="${difficulty}", topic (string), prompt (string), options=["True","False"], answer (object with boolean correct).`;
     case "fill_blank":
@@ -219,19 +219,25 @@ function splitTopicList(topic: unknown, topics: unknown): string[] {
     .filter(Boolean));
 }
 
-function splitDistributionByTopics(dist: DistItem[], topics: string[]): DistItem[] {
+function splitDistributionByTopics(dist: DistItem[], topics: string[], topicCounts: Record<string, number> = {}): DistItem[] {
   if (topics.length <= 1) {
     return dist.map((item) => ({ ...item, topic: topics[0] || item.topic }));
   }
+  const totalCounts = topics.reduce((sum, topic) => sum + (Number.isInteger(topicCounts?.[topic]) ? topicCounts[topic] : 1), 0);
   const expanded: DistItem[] = [];
-  for (const item of dist) {
-    const count = Math.max(1, item.count || 1);
-    const base = Math.floor(count / topics.length);
-    const extra = count % topics.length;
-    topics.forEach((topic, index) => {
-      const topicCount = base + (index < extra ? 1 : 0);
-      if (topicCount > 0) expanded.push({ ...item, count: topicCount, topic });
-    });
+  for (const topic of topics) {
+    const topicTotal = Number.isInteger(topicCounts?.[topic]) ? topicCounts[topic] : Math.max(1, Math.floor(dist.reduce((sum, item) => sum + (item.count || 0), 0) / topics.length));
+    const totalDist = dist.reduce((sum, item) => sum + (item.count || 0), 0);
+    let remaining = topicTotal;
+    for (let index = 0; index < dist.length; index += 1) {
+      const item = dist[index];
+      const proportion = totalDist > 0 ? (item.count || 0) / totalDist : 0;
+      const count = index === dist.length - 1 ? remaining : Math.max(1, Math.round(topicTotal * proportion));
+      remaining -= count;
+      if (count > 0) {
+        expanded.push({ ...item, count, topic });
+      }
+    }
   }
   return expanded;
 }
@@ -468,11 +474,11 @@ Rules:
 - Test an important concept or understanding rather than a tiny incidental detail.
 - Do not copy the fact as a sentence-completion question.
 - Never refer to a document, text, passage, reading, or statement.
-- Provide exactly four concise options and exactly one correct answer.
-- Every option must contain meaningful answer text. Never output placeholders or labels such as "A", "option A", or "choice A" as option text.
-- Distractors must be plausible but clearly incorrect according to the fact. Avoid ambiguity, tricks, double negatives, and overly complex sentences.
-- If the fact cannot support one clear question and answer, return an empty JSON array.
-- Before responding, verify that the answer is supported, the wording is natural and understandable, exactly one option is correct, and the requested difficulty is satisfied.
+- Provide exactly four concise options and one or more correct answers.
+        - Every option must contain meaningful answer text. Never output placeholders or labels such as "A", "option A", or "choice A" as option text.
+        - Distractors must be plausible but clearly incorrect according to the fact. Avoid ambiguity, tricks, double negatives, and overly complex sentences.
+        - If the fact cannot support one or more clear correct answers, return an empty JSON array.
+        - Before responding, verify that the answer(s) are supported, the wording is natural and understandable, at least one option is correct, and the requested difficulty is satisfied.
 
 Return one JSON object only. Do not use markdown.
 Required fields:
@@ -481,7 +487,7 @@ Required fields:
 - topic: a short topic name
 - prompt: the complete English question
 - options: an array containing four actual answer choices in A-to-D order
-- answer: an object containing correct_index, an integer from 0 to 3
+- answer: an object containing correct_index (an integer from 0 to 3) or correct_indices (a non-empty array of distinct integers from 0 to 3)
 
 Write the real question and real choices directly. Do not copy field descriptions into their values.
 
@@ -500,8 +506,17 @@ ${fact}`, {
               },
               answer: {
                 type: "object",
-                properties: { correct_index: { type: "integer", enum: [0, 1, 2, 3] } },
-                required: ["correct_index"],
+                properties: {
+                  correct_index: { type: "integer", enum: [0, 1, 2, 3] },
+                  correct_indices: {
+                    type: "array", minItems: 1, uniqueItems: true,
+                    items: { type: "integer", enum: [0, 1, 2, 3] },
+                  },
+                },
+                anyOf: [
+                  { required: ["correct_index"] },
+                  { required: ["correct_indices"] },
+                ],
               },
             },
             required: ["type", "difficulty", "topic", "prompt", "options", "answer"],
@@ -547,9 +562,9 @@ ${fact}`, {
         if (Array.isArray(question.options) && question.options.length === 4) {
           const reviewOutput = await chat(`You are an educational assessment reviewer.
 
-Use only the FACT below. Check whether exactly one choice correctly answers the QUESTION.
-If exactly one choice is directly supported, set valid to true and return its zero-based index (A=0, B=1, C=2, D=3).
-If the question is ambiguous, unsupported, or has zero/multiple correct choices, set valid to false.
+Use only the FACT below. Check whether one or more choices correctly answer the QUESTION.
+If one or more choices are directly supported, set valid to true and return their zero-based indexes (A=0, B=1, C=2, D=3) using correct_indices. If exactly one choice is correct, correct_index is also acceptable.
+If the question is ambiguous, unsupported, or has zero correct choices, set valid to false.
 
 FACT:
 ${fact}
@@ -564,13 +579,21 @@ ${question.options.map((option: string, index: number) => `${String.fromCharCode
               properties: {
                 valid: { type: "boolean" },
                 correct_index: { type: "integer", enum: [0, 1, 2, 3] },
+                correct_indices: {
+                  type: "array", minItems: 1,
+                  items: { type: "integer", enum: [0, 1, 2, 3] },
+                  uniqueItems: true,
+                },
               },
-              required: ["valid", "correct_index"],
+              required: ["valid"],
             },
             temperature: 0, topP: 0.85, topK: 30, repeatPenalty: 1.1, numPredict: 40,
           });
           const review = extractJSON(reviewOutput);
-          if (review?.valid === true && Number.isInteger(review.correct_index)) {
+          if (review?.valid === true && Array.isArray(review.correct_indices) && review.correct_indices.length > 0) {
+            reviewedIndex = -1;
+            question.answer = { ...(question.answer || {}), correct_indices: review.correct_indices };
+          } else if (review?.valid === true && Number.isInteger(review.correct_index)) {
             reviewedIndex = review.correct_index;
           } else {
             console.warn("MCQ answer reviewer rejected candidate");
@@ -578,22 +601,36 @@ ${question.options.map((option: string, index: number) => `${String.fromCharCode
           }
         }
         const rawAnswer = reviewedIndex >= 0 ? reviewedIndex : question.answer?.correct_index ?? question.answer?.correct ??
-          question.answer?.correct_option ?? question.answer?.correct_answer ??
-          question.correct_index ?? question.correct_option ?? question.correct_answer ?? question.correctAnswer ?? question.answer;
+          question.answer?.correct_indices ?? question.answer?.correct_option ?? question.answer?.correct_answer ??
+          question.correct_index ?? question.correct_indices ?? question.correct_option ?? question.correct_answer ?? question.correctAnswer ?? question.answer;
         let correctIndex = -1;
-        if (typeof rawAnswer === "number" && Number.isInteger(rawAnswer)) {
+        let correctIndices: number[] | undefined;
+        if (Array.isArray(rawAnswer)) {
+          correctIndices = rawAnswer.filter((value): value is number => Number.isInteger(value));
+        } else if (typeof rawAnswer === "number" && Number.isInteger(rawAnswer)) {
           correctIndex = rawAnswer;
         } else if (typeof rawAnswer === "string") {
           const value = rawAnswer.trim();
-          const letter = value.match(/^(?:option\s*)?([A-D])(?:[.):\-])?$/i);
-          if (letter) correctIndex = letter[1].toUpperCase().charCodeAt(0) - 65;
-          else if (/^[0-3]$/.test(value)) correctIndex = Number(value);
-          else if (Array.isArray(question.options)) {
+          const letters = Array.from(value.matchAll(/([A-D])/gi)).map((m) => m[1].toUpperCase().charCodeAt(0) - 65);
+          const digits = value.split(/[^0-3]+/).filter(Boolean).map((v) => Number(v));
+          if (letters.length > 1) {
+            correctIndices = Array.from(new Set(letters));
+          } else if (letters.length === 1) {
+            correctIndex = letters[0];
+          } else if (digits.length > 1) {
+            correctIndices = Array.from(new Set(digits.filter((n) => Number.isInteger(n))));
+          } else if (digits.length === 1) {
+            correctIndex = digits[0];
+          } else if (Array.isArray(question.options)) {
             correctIndex = question.options.findIndex((option: unknown) =>
               String(option).trim().toLowerCase() === value.toLowerCase());
           }
         }
-        question.answer = { correct_index: correctIndex };
+        if (correctIndices && correctIndices.length > 0) {
+          question.answer = { correct_indices: correctIndices };
+        } else {
+          question.answer = { correct_index: correctIndex };
+        }
         return { questions: [question], sources };
       } catch (e) {
         console.error(`three-stage MCQ generation failed (${item.difficulty})`, e);
@@ -632,7 +669,7 @@ Rules:
 - For MCQ, provide exactly four distinct options. Every option must be a verbatim phrase appearing in an excerpt, exactly one option may answer the prompt, distractors must be plausible, and the correct position should vary across questions.
 - For true/false, the statement must be directly verifiable from an excerpt and have one definite truth value.
 - For a false true/false item, change only one important fact from the supported statement.
-- For fill-blank, replace exactly one important word or short phrase with _____. There must be only one correct answer.
+- For fill-blank, replace exactly one important word, number, or short phrase with _____. Provide one or more accepted answers as valid alternate responses. There must still be only one blank.
 - For essay, ask students to explain a concept discussed in the source and provide a rubric containing the key points expected in a correct answer.
 - For matching, match source terms with their definitions; every left and right item must be supported by the cited SOURCE.
 - For matching, a right-side statement must never contain or name its matched left-side term; describe it without repeating it, or the answer is given away.
@@ -817,7 +854,7 @@ app.delete("/subject/:id", async (req, res) => {
 });
 
 app.post("/generate", async (req, res) => {
-  const { subject_id, document_id, document_ids, topic, topics, distribution } = req.body || {};
+  const { subject_id, document_id, document_ids, topic, topics, topic_counts, distribution } = req.body || {};
   if (!subject_id) return res.status(400).json({ error: "subject_id is required" });
   const selectedDocumentIds = Array.from(new Set(
     (Array.isArray(document_ids) ? document_ids : document_id ? [document_id] : [])
@@ -835,7 +872,7 @@ app.post("/generate", async (req, res) => {
     return res.status(400).json({ error: "invalid question distribution" });
   }
   const selectedTopics = splitTopicList(topic, topics);
-  const generationDist = splitDistributionByTopics(dist, selectedTopics);
+  const generationDist = splitDistributionByTopics(dist, selectedTopics, topic_counts);
 
   try {
     const args: unknown[] = [subject_id];

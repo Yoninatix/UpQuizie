@@ -161,13 +161,17 @@ func generationOptions(c *gin.Context) {
 	camelCase := regexp.MustCompile(`([a-z])([A-Z])`)
 	nonTopicChars := regexp.MustCompile(`[^a-z0-9]+`)
 	numericTopicPart := regexp.MustCompile(`^[0-9]+$`)
-	addTopic := func(value string, score int) {
+	genericTopicPatterns := regexp.MustCompile(`(?i)\b(?:introduction|overview|summary|conclusion|lesson|chapter|section|unit|part|objective|objectives|goal|goals|review|example|exercise|problem|notes|background|topic)\b`)
+	normalizeTopicValue := func(value string) string {
 		value = camelCase.ReplaceAllString(value, `$1 $2`)
-		value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
-		if len(value) < 3 || len(value) > 60 || len(strings.Fields(value)) > 7 {
-			return
-		}
-		key := nonTopicChars.ReplaceAllString(strings.ToLower(value), " ")
+		value = strings.TrimSpace(value)
+		value = strings.Trim(value, "#:.-–—_ ")
+		value = strings.Join(strings.Fields(value), " ")
+		return value
+	}
+	makeTopicKey := func(value string) string {
+		key := strings.ToLower(value)
+		key = nonTopicChars.ReplaceAllString(key, " ")
 		key = strings.ReplaceAll(key, "left most", "leftmost")
 		key = strings.ReplaceAll(key, "right most", "rightmost")
 		keyParts := []string{}
@@ -178,11 +182,28 @@ func generationOptions(c *gin.Context) {
 			}
 			keyParts = append(keyParts, part)
 		}
-		key = strings.Join(keyParts, " ")
-		blocked := map[string]bool{"example": true, "output": true, "input": true, "code": true,
-			"question": true, "answer": true, "document": true, "properties": true, "remember": true,
-			"given": true, "generate": true, "solution": true, "rules": true}
-		if len(key) < 3 || blocked[key] || strings.HasPrefix(key, "generate ") {
+		return strings.Join(keyParts, " ")
+	}
+	isGenericTopic := func(value string) bool {
+		if len(value) < 3 || len(value) > 80 || len(strings.Fields(value)) > 7 {
+			return true
+		}
+		if genericTopicPatterns.MatchString(value) {
+			return true
+		}
+		lower := strings.ToLower(value)
+		if lower == "topic" || lower == "content" || lower == "material" || lower == "materials" || lower == "notes" {
+			return true
+		}
+		return false
+	}
+	addTopic := func(value string, score int) {
+		value = normalizeTopicValue(value)
+		if isGenericTopic(value) {
+			return
+		}
+		key := makeTopicKey(value)
+		if len(key) < 3 {
 			return
 		}
 		if old, ok := topicMap[key]; !ok || score > old.score {
@@ -195,8 +216,10 @@ func generationOptions(c *gin.Context) {
 		base := strings.TrimSuffix(name, filepath.Ext(name))
 		base = strings.NewReplacer("_", " ", "-", " ").Replace(base)
 		addTopic(base, 80)
+		for _, part := range strings.FieldsFunc(base, func(r rune) bool { return r == ':' || r == '|' || r == '/' || r == '&' }) {
+			addTopic(part, 60)
+		}
 	}
-
 	args := []interface{}{subjectID}
 	docFilter := ""
 	if len(documentIDs) > 0 {
@@ -226,7 +249,8 @@ func generationOptions(c *gin.Context) {
 	chunkQuery += docFilter
 	chunkQuery += ` ORDER BY chunk_index LIMIT 30`
 	chunkRows, err := db.Query(context.Background(), chunkQuery, args...)
-	labelPattern := regexp.MustCompile(`([A-Z][A-Za-z0-9() /&+_-]{2,40}?):`)
+	labelPattern := regexp.MustCompile(`(?m)^\s*([A-Z][A-Za-z0-9() /&+_-]{2,60}?):`)
+	headlinePattern := regexp.MustCompile(`(?m)^(#{1,6})\s*(.+)$`)
 	if err == nil {
 		for chunkRows.Next() {
 			var content string
@@ -236,6 +260,12 @@ func generationOptions(c *gin.Context) {
 			for _, match := range labelPattern.FindAllStringSubmatch(content, -1) {
 				if len(match) > 1 {
 					addTopic(match[1], topicMap[strings.ToLower(match[1])].score+1)
+				}
+			}
+			for _, match := range headlinePattern.FindAllStringSubmatch(content, -1) {
+				if len(match) > 2 {
+					headline := strings.TrimSpace(match[2])
+					addTopic(headline, topicMap[strings.ToLower(headline)].score+1)
 				}
 			}
 		}
@@ -342,10 +372,11 @@ func ragDelete(path string) {
 func generateQuestions(c *gin.Context) {
 	subjectID := c.Param("id")
 	var req struct {
-		Topic        string   `json:"topic"`
-		Topics       []string `json:"topics"`
-		DocumentID   string   `json:"document_id"`
-		DocumentIDs  []string `json:"document_ids"`
+		Topic        string         `json:"topic"`
+		Topics       []string       `json:"topics"`
+		TopicCounts  map[string]int `json:"topic_counts"`
+		DocumentID   string         `json:"document_id"`
+		DocumentIDs  []string       `json:"document_ids"`
 		Distribution []struct {
 			Type       string `json:"type"`
 			Difficulty string `json:"difficulty"`
@@ -362,6 +393,7 @@ func generateQuestions(c *gin.Context) {
 		"subject_id":   subjectID,
 		"topic":        req.Topic,
 		"topics":       req.Topics,
+		"topic_counts": req.TopicCounts,
 		"document_id":  req.DocumentID,
 		"document_ids": req.DocumentIDs,
 		"distribution": req.Distribution,

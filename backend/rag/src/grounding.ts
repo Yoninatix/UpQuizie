@@ -51,8 +51,12 @@ function meaningfulTokens(value: unknown): Set<string> {
 export function deriveEvidenceQuote(question: GroundedQuestion, expectedType: string, sourceText: string): string {
   const answer: any = question.answer;
   const anchors: string[] = [];
-  if (expectedType === "mcq" && Array.isArray(question.options) && Number.isInteger(answer?.correct_index)) {
-    anchors.push(String(question.options[answer.correct_index] ?? ""));
+  if (expectedType === "mcq" && Array.isArray(question.options)) {
+    if (Array.isArray(answer?.correct_indices)) {
+      anchors.push(...answer.correct_indices.map((idx) => String(question.options[idx] ?? "")));
+    } else if (Number.isInteger(answer?.correct_index)) {
+      anchors.push(String(question.options[answer.correct_index] ?? ""));
+    }
   } else if (expectedType === "fill_blank" && Array.isArray(answer?.accepted)) {
     anchors.push(...answer.accepted.map(String));
   } else if (expectedType === "matching") {
@@ -132,12 +136,27 @@ export function validateGroundedQuestion(
         /[{}\[\]]|\b(?:querying|correct (?:answer|option)|should be selected|json|prompt)\b/i.test(option))) {
       return { valid: false, reason: "MCQ choices must not contain model commentary or serialization artifacts" };
     }
-    if (!answer || !Number.isInteger(answer.correct_index) || answer.correct_index < 0 || answer.correct_index >= options.length) {
-      return { valid: false, reason: "MCQ correct_index is invalid" };
+    const correctIndices: number[] | undefined = Array.isArray(answer?.correct_indices)
+      ? answer.correct_indices
+      : undefined;
+    const hasCorrectIndex = Number.isInteger(answer?.correct_index);
+    if (!answer || (!hasCorrectIndex && !correctIndices)) {
+      return { valid: false, reason: "MCQ answer must include correct_index or correct_indices" };
+    }
+    const selectedIndices = correctIndices ?? [answer.correct_index];
+    if (!Array.isArray(selectedIndices) || selectedIndices.length === 0 ||
+        selectedIndices.some((idx) => !Number.isInteger(idx) || idx < 0 || idx >= options.length)) {
+      return { valid: false, reason: "MCQ correct_indices are invalid" };
+    }
+    if (new Set(selectedIndices).size !== selectedIndices.length) {
+      return { valid: false, reason: "MCQ correct_indices must be distinct" };
+    }
+    if (selectedIndices.length >= options.length) {
+      return { valid: false, reason: "MCQ must have at least one distractor" };
     }
     if (question.source_fact) {
       const factTokens = meaningfulTokens(question.source_fact);
-      const itemTokens = meaningfulTokens(`${question.prompt} ${options[answer.correct_index]}`);
+      const itemTokens = meaningfulTokens(`${question.prompt} ${selectedIndices.map((idx) => options[idx]).join(" ")}`);
       if (factTokens.size === 0 || ![...itemTokens].some((token) => factTokens.has(token))) {
         return { valid: false, reason: "MCQ is not meaningfully connected to its validated source fact" };
       }
@@ -159,13 +178,19 @@ export function validateGroundedQuestion(
       return { valid: false, reason: "fill-blank prompt must contain a _____ blank" };
     }
     const accepted = stringArray(answer?.accepted);
-    if (!accepted || accepted.some((value) => !appearsIn(value, quote))) {
-      return { valid: false, reason: "every accepted answer must occur in its evidence quote" };
+    if (!accepted || accepted.some((value) => !appearsIn(value, source.text))) {
+      return { valid: false, reason: "every accepted answer must occur in the selected source text" };
     }
-    // The blank stands for a word or short phrase; a full sentence means the
-    // model restated the source instead of removing one key term.
-    if (accepted.some((value) => value.trim().split(/\s+/).length > 8)) {
-      return { valid: false, reason: "a fill-blank answer must be a word or short phrase" };
+    if (!accepted.some((value) => appearsIn(value, quote))) {
+      return { valid: false, reason: "at least one accepted answer must appear in its evidence quote" };
+    }
+    // The blank answer must be concise. Allow one word, a short phrase, or a number.
+    if (accepted.some((value) => {
+      const trimmed = value.trim();
+      if (/^[+-]?\d+(?:\.\d+)?$/.test(trimmed)) return false;
+      return trimmed.split(/\s+/).length > 5;
+    })) {
+      return { valid: false, reason: "a fill-blank answer must be a single word, a short phrase, or a number" };
     }
   } else if (expectedType === "matching") {
     const options: any = question.options;

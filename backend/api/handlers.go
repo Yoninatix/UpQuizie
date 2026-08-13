@@ -945,8 +945,9 @@ func isBlankResponse(qtype string, responseJSON []byte) bool {
 	}
 	switch qtype {
 	case "mcq":
-		_, ok := raw["index"]
-		return !ok
+		_, okIndex := raw["index"]
+		_, okIndices := raw["indices"]
+		return !okIndex && !okIndices
 	case "true_false":
 		_, ok := raw["value"]
 		return !ok
@@ -976,13 +977,34 @@ func autoGrade(qtype string, answerJSON, responseJSON []byte) (bool, bool) {
 	switch qtype {
 	case "mcq":
 		var ans struct {
-			CorrectIndex int `json:"correct_index"`
+			CorrectIndex   int   `json:"correct_index"`
+			CorrectIndices []int `json:"correct_indices"`
 		}
 		var resp struct {
-			Index int `json:"index"`
+			Index   int   `json:"index"`
+			Indices []int `json:"indices"`
 		}
 		json.Unmarshal(answerJSON, &ans)
 		json.Unmarshal(responseJSON, &resp)
+		if len(ans.CorrectIndices) > 0 {
+			want := map[int]bool{}
+			for _, idx := range ans.CorrectIndices {
+				want[idx] = true
+			}
+			got := map[int]bool{}
+			for _, idx := range resp.Indices {
+				got[idx] = true
+			}
+			if len(want) == 0 || len(got) != len(want) {
+				return false, true
+			}
+			for idx := range want {
+				if !got[idx] {
+					return false, true
+				}
+			}
+			return true, true
+		}
 		return resp.Index == ans.CorrectIndex, true
 	case "true_false":
 		var ans struct {

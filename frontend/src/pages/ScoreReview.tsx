@@ -76,6 +76,9 @@ function formatExpected(answer: ReviewAnswer): string {
   if (expected == null) return "-";
   switch (answer.type) {
     case "mcq":
+      if (Array.isArray(expected.correct_indices) && expected.correct_indices.length > 0) {
+        return expected.correct_indices.map((idx: number) => optionText(answer.options, idx)).join("; ");
+      }
       return optionText(answer.options, expected.correct_index ?? 0);
     case "true_false":
       return expected.correct ? "True" : "False";
@@ -95,6 +98,9 @@ function formatResponse(answer: ReviewAnswer): string {
   if (response == null || (typeof response === "object" && Object.keys(response).length === 0)) return "No answer";
   switch (answer.type) {
     case "mcq":
+      if (Array.isArray(response.indices) && response.indices.length > 0) {
+        return response.indices.map((idx: number) => optionText(answer.options, idx)).join("; ");
+      }
       return response.index != null ? optionText(answer.options, response.index) : "No answer";
     case "true_false":
       return response.value != null ? (response.value ? "True" : "False") : "No answer";

@@ -9,7 +9,7 @@ actual code in this repository, so the running system matches the documentation.
 |---|---|
 | React 18 + Vite + TypeScript + Tailwind | `frontend/` (`package.json`, `vite.config.ts`, `tailwind.config.js`) |
 | Zustand (client state) | `frontend/src/store.ts`, consumed in `frontend/src/auth.tsx` |
-| TanStack React Query (data fetching) | `frontend/src/main.tsx` (provider) + `pages/Materials.tsx`, `ReviewQuestions.tsx`, `Analytics.tsx`, `EducatorDashboard.tsx` |
+| TanStack React Query (data fetching) | `frontend/src/main.tsx` (provider) + `pages/Materials.tsx`, `ReviewQuestions.tsx`, `Analytics.tsx`, `TeacherDashboard.tsx` |
 | React Router v6 | `frontend/src/App.tsx` |
 | Go 1.22 + Gin + pgx v5 | `backend/api/` (`go.mod`, `main.go`, `handlers.go`) |
 | Node.js + TypeScript AI service | `backend/rag/` |
@@ -42,14 +42,14 @@ All tables are defined in `backend/db/init/01_schema.sql`:
 | Cosine similarity retrieval | `milvus.ts` (`search`, `metric_type: COSINE`) |
 | Generate via gemma3:1b | `index.ts` `/generate` → `chat()` |
 | Parse / validate / deduplicate | `extractJSON` + `seen` set in `/generate` |
-| Save for educator review | insert into `generated_questions` (status `pending`) |
+| Save for teacher review | insert into `generated_questions` (status `pending`) |
 
 ## Roles & use cases
 
 | Actor | Capabilities | Code |
 |---|---|---|
 | Administrator | view users, update roles, deactivate | `GET/PATCH /api/admin/users` (`handlers.go`) |
-| Educator | subjects, enrollment, upload, generate, review, build/publish exams, analytics | `handlers.go`, `documents.go` |
+| Teacher | subjects, enrollment, upload, generate, review, build/publish exams, analytics | `handlers.go`, `documents.go` |
 | Student | view assigned exams, take, submit, view score | `startAttempt`, `submitAttempt`, `getAttempt` |
 
 ## Scoring (thesis "Question Types and Scoring")
