@@ -39,7 +39,7 @@ function topicSplitPreview(dist: DistRow[], topics: string[]) {
   return topics.map((topic) => ({ topic, count: totals.get(topic) || 0 }));
 }
 
-export default function EducatorDashboard() {
+export default function TeacherDashboard() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { data: subjects = [] } = useQuery({ queryKey: ["subjects"], queryFn: () => api.get<Subject[]>("/subjects") });

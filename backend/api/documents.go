@@ -338,7 +338,7 @@ func ragDelete(path string) {
 }
 
 // generateQuestions forwards the request to the RAG service, which retrieves
-// grounded context and writes new rows to generated_questions for educator review.
+// grounded context and writes new rows to generated_questions for teacher review.
 func generateQuestions(c *gin.Context) {
 	subjectID := c.Param("id")
 	var req struct {

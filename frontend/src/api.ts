@@ -52,7 +52,7 @@ export interface User {
   id: string;
   email: string;
   full_name: string;
-  role: "student" | "educator" | "admin";
+  role: "student" | "teacher" | "admin";
   identifier?: string | null;
   avatar_url?: string | null;
 }
@@ -62,7 +62,7 @@ export interface Subject {
   name: string;
   department?: string;
   status: string;
-  educator?: string;
+  teacher?: string;
   students: number;
   active_exams: number;
 }

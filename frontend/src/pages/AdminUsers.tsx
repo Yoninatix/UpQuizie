@@ -14,13 +14,13 @@ interface AdminUser {
 
 const roleBadge: Record<string, string> = {
   admin: "bg-tertiary-fixed text-on-tertiary-container",
-  educator: "bg-secondary-fixed text-on-secondary-container",
+  teacher: "bg-secondary-fixed text-on-secondary-container",
   student: "bg-primary-fixed text-on-primary-container",
 };
 
 const avatarColor: Record<string, string> = {
   admin: "bg-tertiary-container text-on-tertiary-container",
-  educator: "bg-secondary-container text-on-secondary-container",
+  teacher: "bg-secondary-container text-on-secondary-container",
   student: "bg-primary-container text-on-primary-container",
 };
 
@@ -223,7 +223,7 @@ export default function AdminUsers() {
             className="block w-full md:w-40 border border-outline-variant rounded-lg px-3 py-2 bg-white">
             <option value="all">All Roles</option>
             <option value="student">Student</option>
-            <option value="educator">Educator</option>
+            <option value="teacher">Teacher</option>
             <option value="admin">Admin</option>
           </select>
         </label>
@@ -388,7 +388,7 @@ export default function AdminUsers() {
                   <select value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
                     className="w-full border border-outline-variant rounded-lg px-3 py-2 bg-white">
                     <option value="student">Student</option>
-                    <option value="educator">Educator</option>
+                    <option value="teacher">Teacher</option>
                     <option value="admin">Admin</option>
                   </select>
                 </label>

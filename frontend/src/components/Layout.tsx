@@ -2,11 +2,23 @@ import { ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 
-export function Icon({ name, className = "" }: { name: string; className?: string }) {
-  return <span className={`material-symbols-outlined ${className}`}>{name}</span>;
+export function Icon({
+  name,
+  className = "",
+}: {
+  name: string;
+  className?: string;
+}) {
+  return (
+    <span className={`material-symbols-outlined ${className}`}>{name}</span>
+  );
 }
 
-interface NavItem { label: string; icon: string; to: string }
+interface NavItem {
+  label: string;
+  icon: string;
+  to: string;
+}
 
 const navByRole: Record<string, NavItem[]> = {
   student: [
@@ -14,18 +26,22 @@ const navByRole: Record<string, NavItem[]> = {
     { label: "Calendar", icon: "calendar_month", to: "/calendar" },
     { label: "Performance", icon: "monitoring", to: "/performance" },
   ],
-  educator: [
+  teacher: [
     { label: "Subjects", icon: "book", to: "/subjects" },
     { label: "Learning Materials", icon: "folder_open", to: "/materials" },
     { label: "Exam Sessions", icon: "live_tv", to: "/sessions" },
     { label: "Analytics", icon: "analytics", to: "/analytics" },
   ],
-  admin: [
-    { label: "User Management", icon: "group", to: "/admin/users" },
-  ],
+  admin: [{ label: "User Management", icon: "group", to: "/admin/users" }],
 };
 
-export default function Layout({ children, title }: { children: ReactNode; title: string }) {
+export default function Layout({
+  children,
+  title,
+}: {
+  children: ReactNode;
+  title: string;
+}) {
   const { user, logout } = useAuth();
   const loc = useLocation();
   const nav = useNavigate();
@@ -40,7 +56,9 @@ export default function Layout({ children, title }: { children: ReactNode; title
             <Icon name="school" />
           </div>
           <div>
-            <h1 className="font-headline text-xl font-bold text-primary leading-tight">UpQuiz</h1>
+            <h1 className="font-headline text-xl font-bold text-primary leading-tight">
+              UpQuiz
+            </h1>
             <p className="text-[10px] uppercase tracking-widest text-on-surface-variant font-semibold">
               Academic Management
             </p>
@@ -78,7 +96,10 @@ export default function Layout({ children, title }: { children: ReactNode; title
             Settings
           </Link>
           <button
-            onClick={() => { logout(); nav("/login"); }}
+            onClick={() => {
+              logout();
+              nav("/login");
+            }}
             className="flex items-center gap-3 px-4 py-3 w-full rounded-lg text-on-surface-variant hover:bg-surface-container-high text-sm font-semibold"
           >
             <Icon name="logout" />
@@ -90,13 +111,23 @@ export default function Layout({ children, title }: { children: ReactNode; title
       {/* Main */}
       <div className="ml-64 flex flex-col min-h-screen">
         <header className="h-16 bg-surface-container-lowest border-b border-outline-variant flex items-center justify-between px-8 sticky top-0 z-30">
-          <h2 className="font-headline text-xl font-bold text-primary">{title}</h2>
+          <h2 className="font-headline text-xl font-bold text-primary">
+            {title}
+          </h2>
           <div className="flex items-center gap-3">
-            <span className="text-sm text-on-surface-variant hidden sm:block">{user?.full_name}</span>
+            <span className="text-sm text-on-surface-variant hidden sm:block">
+              {user?.full_name}
+            </span>
             <div className="w-9 h-9 rounded-full bg-primary-container text-on-primary flex items-center justify-center font-bold text-sm overflow-hidden">
-              {user?.avatar_url
-                ? <img src={user.avatar_url} alt="Profile" className="w-full h-full object-cover" />
-                : (user?.full_name?.[0] || "U")}
+              {user?.avatar_url ? (
+                <img
+                  src={user.avatar_url}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                user?.full_name?.[0] || "U"
+              )}
             </div>
           </div>
         </header>

@@ -55,7 +55,7 @@ export default function SubjectDetail() {
     enabled: !!previewId,
   });
 
-  const canManage = user?.role === "educator" || user?.role === "admin";
+  const canManage = user?.role === "teacher" || user?.role === "admin";
   const tab = searchParams.get("tab") === "grading" && canManage ? "grading" : "quizzes";
   const subject = subjects.find((item) => item.id === id);
   const subjectExams = exams.filter((exam) => exam.subject_id === id);
@@ -163,7 +163,7 @@ export default function SubjectDetail() {
           </Link>
         )}
         {canManage && (
-          <Link to="/educator" className="ml-auto px-4 py-2 text-sm text-secondary font-semibold flex items-center gap-1 hover:underline">
+          <Link to="/teacher" className="ml-auto px-4 py-2 text-sm text-secondary font-semibold flex items-center gap-1 hover:underline">
             <Icon name="auto_awesome" className="text-[18px]" /> Generate & review
           </Link>
         )}
@@ -180,7 +180,7 @@ export default function SubjectDetail() {
           </div>
           <h2 className="font-headline text-xl text-primary">No published quizzes yet</h2>
           <p className="text-sm text-on-surface-variant mt-2">Published quizzes created by the teacher will appear here.</p>
-          {canManage && <Link to="/educator" className="inline-block mt-5 bg-secondary text-on-secondary px-5 py-2.5 rounded-lg font-semibold">Create a quiz</Link>}
+          {canManage && <Link to="/teacher" className="inline-block mt-5 bg-secondary text-on-secondary px-5 py-2.5 rounded-lg font-semibold">Create a quiz</Link>}
         </div>
       ) : (
         <div className="space-y-4">

@@ -3,7 +3,7 @@
 
 INSERT INTO users (id, email, password_hash, full_name, role, identifier, status) VALUES
   ('11111111-1111-1111-1111-111111111111', 'admin@university.edu',   crypt('password123', gen_salt('bf')), 'Admin User',        'admin',    'EMP-000001', 'active'),
-  ('22222222-2222-2222-2222-222222222222', 'grecia@university.edu',  crypt('password123', gen_salt('bf')), 'Prof. Grecia',      'educator', 'EMP-987654', 'active'),
+  ('22222222-2222-2222-2222-222222222222', 'grecia@university.edu',  crypt('password123', gen_salt('bf')), 'Prof. Grecia',      'teacher',  'EMP-987654', 'active'),
   ('33333333-3333-3333-3333-333333333333', 'alex@university.edu',    crypt('password123', gen_salt('bf')), 'Alex Rivera',       'student',  'S-12345678', 'active');
 
 INSERT INTO subjects (id, code, name, department, description, educator_id, status) VALUES

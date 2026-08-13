@@ -29,7 +29,7 @@ func listSubjects(c *gin.Context) {
 	role, _ := c.Get("role")
 	userID, _ := c.Get("userID")
 
-	// Students only see subjects they're enrolled in; educators only their own.
+	// Students only see subjects they're enrolled in; teachers only their own.
 	q := `SELECT s.id, s.code, s.name, s.department, s.description, s.status,
 	             COALESCE(u.full_name,''),
 	             (SELECT count(*) FROM subject_enrollments e WHERE e.subject_id=s.id),
@@ -39,7 +39,7 @@ func listSubjects(c *gin.Context) {
 	if role == "student" {
 		q += ` WHERE s.id IN (SELECT subject_id FROM subject_enrollments WHERE student_id=$1)`
 		args = append(args, userID)
-	} else if role == "educator" {
+	} else if role == "teacher" {
 		q += ` WHERE s.educator_id=$1`
 		args = append(args, userID)
 	}
@@ -53,13 +53,13 @@ func listSubjects(c *gin.Context) {
 	defer rows.Close()
 	out := []gin.H{}
 	for rows.Next() {
-		var id, code, name, status, educator string
+		var id, code, name, status, teacher string
 		var dept, desc *string
 		var students, activeExams int
-		rows.Scan(&id, &code, &name, &dept, &desc, &status, &educator, &students, &activeExams)
+		rows.Scan(&id, &code, &name, &dept, &desc, &status, &teacher, &students, &activeExams)
 		out = append(out, gin.H{
 			"id": id, "code": code, "name": name, "department": dept, "description": desc,
-			"status": status, "educator": educator, "students": students, "active_exams": activeExams,
+			"status": status, "teacher": teacher, "students": students, "active_exams": activeExams,
 		})
 	}
 	c.JSON(200, out)
@@ -382,7 +382,7 @@ func listExams(c *gin.Context) {
 		q += ` WHERE e.status='published' AND e.subject_id IN
 		        (SELECT subject_id FROM subject_enrollments WHERE student_id=$1)`
 		args = append(args, userID)
-	} else if role == "educator" {
+	} else if role == "teacher" {
 		q += ` WHERE e.subject_id IN (SELECT id FROM subjects WHERE educator_id=$1)`
 		args = append(args, userID)
 	}
@@ -638,7 +638,7 @@ func getExam(c *gin.Context) {
 
 func listExamQuestions(c *gin.Context) {
 	role, _ := c.Get("role")
-	includeAnswers := role == "educator" || role == "admin"
+	includeAnswers := role == "teacher" || role == "admin"
 	if role == "student" {
 		userID, _ := c.Get("userID")
 		var allowed bool
@@ -1142,8 +1142,8 @@ func updateUser(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	if req.Role != nil && *req.Role != "student" && *req.Role != "educator" && *req.Role != "admin" {
-		c.JSON(400, gin.H{"error": "role must be student, educator, or admin"})
+	if req.Role != nil && *req.Role != "student" && *req.Role != "teacher" && *req.Role != "admin" {
+		c.JSON(400, gin.H{"error": "role must be student, teacher, or admin"})
 		return
 	}
 	if req.Status != nil && *req.Status != "active" && *req.Status != "inactive" && *req.Status != "pending" {

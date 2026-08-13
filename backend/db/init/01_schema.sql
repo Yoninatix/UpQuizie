@@ -2,7 +2,7 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ---------- users ----------
-CREATE TYPE user_role AS ENUM ('student', 'educator', 'admin');
+CREATE TYPE user_role AS ENUM ('student', 'teacher', 'admin');
 CREATE TYPE user_status AS ENUM ('active', 'inactive', 'pending');
 
 CREATE TABLE users (

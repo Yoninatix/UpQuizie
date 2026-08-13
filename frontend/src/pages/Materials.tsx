@@ -57,7 +57,7 @@ function SubjectMaterials({ subjectId, subjects }: { subjectId: string; subjects
   const [customModules, setCustomModules] = useState<string[]>([]);
   const [newModule, setNewModule] = useState("");
   const subject = subjects.find((s) => s.id === subjectId);
-  const canManage = user?.role === "educator" || user?.role === "admin";
+  const canManage = user?.role === "teacher" || user?.role === "admin";
 
   const { data: docs = [] } = useQuery({
     queryKey: ["documents", subjectId],
