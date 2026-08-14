@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -65,7 +66,16 @@ func uploadDocument(c *gin.Context) {
 			status, errMsg = "error", err.Error()
 		} else {
 			if resp.StatusCode >= 300 {
-				status, errMsg = "error", "rag process failed"
+				errMsg = "rag process failed"
+				if bodyBytes, readErr := io.ReadAll(resp.Body); readErr == nil {
+					var body struct {
+						Error string `json:"error"`
+					}
+					if json.Unmarshal(bodyBytes, &body) == nil && strings.TrimSpace(body.Error) != "" {
+						errMsg = "rag process failed: " + strings.TrimSpace(body.Error)
+					}
+				}
+				status = "error"
 			}
 			resp.Body.Close()
 		}
@@ -110,9 +120,40 @@ func normalizeModuleLabel(value string) string {
 	return value
 }
 
-// generationOptions supplies non-free-text generation controls. Topics are
-// extracted from uploaded-document labels/headings and previously validated
-// questions, while documents are limited to materials that finished indexing.
+func renameModule(c *gin.Context) {
+	var req struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+	from := normalizeModuleLabel(req.From)
+	to := normalizeModuleLabel(req.To)
+	if strings.TrimSpace(req.To) == "" {
+		c.JSON(400, gin.H{"error": "module name is required"})
+		return
+	}
+	if from == to {
+		c.JSON(200, gin.H{"ok": true, "updated": 0, "module_label": to})
+		return
+	}
+
+	tag, err := db.Exec(context.Background(),
+		`UPDATE uploaded_documents
+		 SET module_label=$3
+		 WHERE subject_id=$1 AND module_label=$2`,
+		c.Param("id"), from, to)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"ok": true, "updated": tag.RowsAffected(), "module_label": to})
+}
+
+// generationOptions supplies non-free-text generation controls. Topic/focus
+// suggestions come only from title/header-like lines in ready uploaded content.
 func generationOptions(c *gin.Context) {
 	subjectID := c.Param("id")
 	documentIDs := []string{}
@@ -161,11 +202,23 @@ func generationOptions(c *gin.Context) {
 	camelCase := regexp.MustCompile(`([a-z])([A-Z])`)
 	nonTopicChars := regexp.MustCompile(`[^a-z0-9]+`)
 	numericTopicPart := regexp.MustCompile(`^[0-9]+$`)
-	genericTopicPatterns := regexp.MustCompile(`(?i)\b(?:introduction|overview|summary|conclusion|lesson|chapter|section|unit|part|objective|objectives|goal|goals|review|example|exercise|problem|notes|background|topic)\b`)
+	genericTopicPatterns := regexp.MustCompile(`(?i)^(?:introduction|overview|summary|conclusion|lesson|chapter|section|unit|part|objective|objectives|goal|goals|review|example|exercise|problem|notes|background|topic|content|material|materials)$`)
+	chapterPrefix := regexp.MustCompile(`(?i)^(?:chapter|lesson|module|unit|section)\s+[0-9ivxlcdm]+(?:\s*[:.)-]\s*|\s+)`)
+	numberedPrefix := regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)*[.)-]?\s+`)
+	markdownHeading := regexp.MustCompile(`^(?:#{1,6})\s+(.+)$`)
+	labelHeading := regexp.MustCompile(`(?i)^(?:title|header)\s*:\s*(.+)$`)
+	inlineLabelHeading := regexp.MustCompile(`(?i)(?:^|\n|[.!?]\s+)(?:title|header)\s*:\s*([^.!?\n]{3,100})`)
+	inlineChapterHeading := regexp.MustCompile(`(?i)(?:^|\n|[.!?]\s+)(?:chapter|lesson|module|unit|section)\s+[0-9ivxlcdm]+(?:\s*[:.)-]\s*|\s+)([^.!?\n]{3,120})`)
+	chapterHeading := regexp.MustCompile(`(?i)^(?:chapter|lesson|module|unit|section)\s+[0-9ivxlcdm]+(?:\s*[:.)-]\s*|\s+)(.+)$`)
+	numberedHeading := regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)*[.)]\s+[A-Z][A-Za-z0-9() /&+_,'-]{2,100})$`)
+	hasCapitalLetter := regexp.MustCompile(`[A-Z]`)
+	sentenceStarter := regexp.MustCompile(`\s+(?:When|The|A|An|This|These|Those|It|In|On|For|Before|After|However|Electrons?|Atoms?|Noble|Mendeleev|Bohr)\b.*$`)
 	normalizeTopicValue := func(value string) string {
 		value = camelCase.ReplaceAllString(value, `$1 $2`)
 		value = strings.TrimSpace(value)
-		value = strings.Trim(value, "#:.-–—_ ")
+		value = chapterPrefix.ReplaceAllString(value, "")
+		value = numberedPrefix.ReplaceAllString(value, "")
+		value = strings.Trim(value, "#:.- ")
 		value = strings.Join(strings.Fields(value), " ")
 		return value
 	}
@@ -185,18 +238,90 @@ func generationOptions(c *gin.Context) {
 		return strings.Join(keyParts, " ")
 	}
 	isGenericTopic := func(value string) bool {
-		if len(value) < 3 || len(value) > 80 || len(strings.Fields(value)) > 7 {
+		if len(value) < 3 || len(value) > 100 || len(strings.Fields(value)) > 10 {
 			return true
 		}
-		if genericTopicPatterns.MatchString(value) {
-			return true
-		}
-		lower := strings.ToLower(value)
-		if lower == "topic" || lower == "content" || lower == "material" || lower == "materials" || lower == "notes" {
-			return true
-		}
-		return false
+		return genericTopicPatterns.MatchString(value)
 	}
+	isTitleCaseLine := func(value string) bool {
+		words := strings.Fields(value)
+		if len(words) == 0 {
+			return false
+		}
+		titleWords := 0
+		for _, word := range words {
+			word = strings.Trim(word, "([]{}:,-")
+			if word == "" {
+				continue
+			}
+			r := []rune(word)[0]
+			if r >= 'A' && r <= 'Z' {
+				titleWords++
+			}
+		}
+		return titleWords >= 1 && titleWords*2 >= len(words)
+	}
+	isHeaderLine := func(line string) (string, bool) {
+		line = strings.TrimSpace(line)
+		if line == "" || len(line) > 140 || strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") {
+			return "", false
+		}
+		if strings.ContainsAny(line, ".!?;") && !numberedHeading.MatchString(line) {
+			return "", false
+		}
+		if match := markdownHeading.FindStringSubmatch(line); len(match) > 1 {
+			return match[1], true
+		}
+		if match := labelHeading.FindStringSubmatch(line); len(match) > 1 {
+			return match[1], true
+		}
+		if match := chapterHeading.FindStringSubmatch(line); len(match) > 1 {
+			return match[1], true
+		}
+		if match := numberedHeading.FindStringSubmatch(line); len(match) > 1 {
+			return match[1], true
+		}
+		trimmed := strings.Trim(line, ":")
+		if strings.ToUpper(trimmed) == trimmed && hasCapitalLetter.MatchString(trimmed) && len(strings.Fields(trimmed)) <= 10 {
+			return trimmed, true
+		}
+		if len(strings.Fields(trimmed)) <= 8 && isTitleCaseLine(trimmed) {
+			return trimmed, true
+		}
+		return "", false
+	}
+	cleanInlineTitle := func(value string) string {
+		value = sentenceStarter.ReplaceAllString(strings.TrimSpace(value), "")
+		words := strings.Fields(value)
+		if len(words) > 10 {
+			words = words[:10]
+		}
+		return strings.Join(words, " ")
+	}
+	repeatedHeadings := func(content string) []string {
+		raw := strings.Fields(content)
+		words := make([]string, 0, len(raw))
+		for _, word := range raw {
+			word = strings.Trim(word, ".,;:!?()[]{}")
+			if word != "" {
+				words = append(words, word)
+			}
+		}
+		out := []string{}
+		seen := map[string]bool{}
+		for i := 0; i < len(words); i++ {
+			for size := 1; size <= 8 && i+2*size <= len(words); size++ {
+				left := strings.Join(words[i:i+size], " ")
+				right := strings.Join(words[i+size:i+2*size], " ")
+				if left == right && isTitleCaseLine(left) && !seen[strings.ToLower(left)] {
+					out = append(out, left)
+					seen[strings.ToLower(left)] = true
+				}
+			}
+		}
+		return out
+	}
+
 	addTopic := func(value string, score int) {
 		value = normalizeTopicValue(value)
 		if isGenericTopic(value) {
@@ -211,15 +336,6 @@ func generationOptions(c *gin.Context) {
 		}
 	}
 
-	for _, documentID := range documentIDs {
-		name := documentNames[documentID]
-		base := strings.TrimSuffix(name, filepath.Ext(name))
-		base = strings.NewReplacer("_", " ", "-", " ").Replace(base)
-		addTopic(base, 80)
-		for _, part := range strings.FieldsFunc(base, func(r rune) bool { return r == ':' || r == '|' || r == '/' || r == '&' }) {
-			addTopic(part, 60)
-		}
-	}
 	args := []interface{}{subjectID}
 	docFilter := ""
 	if len(documentIDs) > 0 {
@@ -230,43 +346,36 @@ func generationOptions(c *gin.Context) {
 		}
 		docFilter = " AND document_id IN (" + strings.Join(placeholders, ",") + ")"
 	}
-	generatedRows, err := db.Query(context.Background(),
-		`SELECT topic, count(*) FROM generated_questions
-		 WHERE subject_id=$1`+docFilter+` AND COALESCE(topic,'')<>''
-		 GROUP BY topic`, args...)
-	if err == nil {
-		for generatedRows.Next() {
-			var topic string
-			var count int
-			if generatedRows.Scan(&topic, &count) == nil {
-				addTopic(topic, 100+count)
-			}
-		}
-		generatedRows.Close()
-	}
 
 	chunkQuery := `SELECT content FROM document_chunks WHERE subject_id=$1`
 	chunkQuery += docFilter
 	chunkQuery += ` ORDER BY chunk_index LIMIT 30`
 	chunkRows, err := db.Query(context.Background(), chunkQuery, args...)
-	labelPattern := regexp.MustCompile(`(?m)^\s*([A-Z][A-Za-z0-9() /&+_-]{2,60}?):`)
-	headlinePattern := regexp.MustCompile(`(?m)^(#{1,6})\s*(.+)$`)
 	if err == nil {
+		lineNumber := 0
 		for chunkRows.Next() {
 			var content string
 			if chunkRows.Scan(&content) != nil {
 				continue
 			}
-			for _, match := range labelPattern.FindAllStringSubmatch(content, -1) {
+			for _, match := range inlineLabelHeading.FindAllStringSubmatch(content, -1) {
 				if len(match) > 1 {
-					addTopic(match[1], topicMap[strings.ToLower(match[1])].score+1)
+					addTopic(match[1], 1200-lineNumber)
 				}
 			}
-			for _, match := range headlinePattern.FindAllStringSubmatch(content, -1) {
-				if len(match) > 2 {
-					headline := strings.TrimSpace(match[2])
-					addTopic(headline, topicMap[strings.ToLower(headline)].score+1)
+			for _, match := range inlineChapterHeading.FindAllStringSubmatch(content, -1) {
+				if len(match) > 1 {
+					addTopic(cleanInlineTitle(match[1]), 1100-lineNumber)
 				}
+			}
+			for _, title := range repeatedHeadings(content) {
+				addTopic(title, 900-lineNumber)
+			}
+			for _, line := range strings.Split(content, "\n") {
+				if title, ok := isHeaderLine(line); ok {
+					addTopic(title, 1000-lineNumber)
+				}
+				lineNumber++
 			}
 		}
 		chunkRows.Close()

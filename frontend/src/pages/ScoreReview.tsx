@@ -71,6 +71,17 @@ function matchingPairs(options: any, pairs: any): string | null {
     .join("\n");
 }
 
+function matchingPairMap(pairs: any): Map<number, number> {
+  const map = new Map<number, number>();
+  if (!Array.isArray(pairs)) return map;
+  for (const pair of pairs) {
+    const leftIndex = Number(pair?.[0]);
+    const rightIndex = Number(pair?.[1]);
+    if (Number.isInteger(leftIndex) && Number.isInteger(rightIndex)) map.set(leftIndex, rightIndex);
+  }
+  return map;
+}
+
 function formatExpected(answer: ReviewAnswer): string {
   const expected = answer.expected_answer;
   if (expected == null) return "-";
@@ -326,8 +337,30 @@ function AnswerRow({ answer, saving, onSave }: { answer: ReviewAnswer; saving: b
         <p className="font-semibold text-on-surface leading-6">{answer.prompt}</p>
         <p className="text-xs text-on-surface-variant mt-2">{answer.points} possible point{answer.points === 1 ? "" : "s"}</p>
       </td>
-      <td className="px-4 py-3 align-top min-w-[220px] whitespace-pre-line text-on-surface">{formatResponse(answer)}</td>
-      <td className="px-4 py-3 align-top min-w-[220px] whitespace-pre-line text-green-800">{formatExpected(answer)}</td>
+      <td className="px-4 py-3 align-top min-w-[260px] text-on-surface">
+        {answer.type === "matching" ? (
+          <MatchingAnswerVisual
+            options={answer.options}
+            pairs={answer.response?.pairs}
+            expectedPairs={answer.expected_answer?.pairs}
+            emptyLabel="No matching answer"
+          />
+        ) : (
+          <span className="whitespace-pre-line">{formatResponse(answer)}</span>
+        )}
+      </td>
+      <td className="px-4 py-3 align-top min-w-[300px] text-green-800">
+        {answer.type === "matching" ? (
+          <MatchingAnswerVisual
+            options={answer.options}
+            pairs={answer.expected_answer?.pairs}
+            answerKey
+            emptyLabel="No answer key"
+          />
+        ) : (
+          <span className="whitespace-pre-line">{formatExpected(answer)}</span>
+        )}
+      </td>
       <td className="px-4 py-3 align-top">
         <input
           type="number"
@@ -363,5 +396,63 @@ function AnswerRow({ answer, saving, onSave }: { answer: ReviewAnswer; saving: b
         </button>
       </td>
     </tr>
+  );
+}
+
+function MatchingAnswerVisual({ options, pairs, expectedPairs, answerKey = false, emptyLabel }: {
+  options: any;
+  pairs: any;
+  expectedPairs?: any;
+  answerKey?: boolean;
+  emptyLabel: string;
+}) {
+  const left = Array.isArray(options?.left) ? options.left : [];
+  const right = Array.isArray(options?.right) ? options.right : [];
+  const selected = matchingPairMap(pairs);
+  const expected = matchingPairMap(expectedPairs);
+
+  if (left.length === 0 || right.length === 0 || selected.size === 0) {
+    return <p className="text-sm text-on-surface-variant">{emptyLabel}</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {left.map((term: any, leftIndex: number) => {
+        const rightIndex = selected.get(leftIndex);
+        if (rightIndex == null) return null;
+        const correctRightIndex = expected.get(leftIndex);
+        const isCorrect = answerKey || correctRightIndex == null ? true : rightIndex === correctRightIndex;
+        const tone = isCorrect
+          ? "border-green-200 bg-green-50 text-green-900"
+          : "border-error/30 bg-error-container/30 text-on-error-container";
+        return (
+          <div key={`${leftIndex}-${rightIndex}`} className={`rounded-lg border p-2.5 ${tone}`}>
+            <div className="flex items-start gap-2">
+              <span className="mt-0.5 shrink-0 rounded bg-white/80 px-1.5 py-0.5 text-[11px] font-bold text-primary">
+                {leftIndex + 1}
+              </span>
+              <p className="min-w-0 flex-1 text-xs font-semibold leading-5">{String(term)}</p>
+            </div>
+            <div className="my-1 flex items-center gap-2 pl-7 text-[11px] font-bold uppercase tracking-wide opacity-80">
+              <span className="h-px flex-1 bg-current/25" />
+              <Icon name={isCorrect ? "check_circle" : "cancel"} className="text-[15px]" />
+              <span>{answerKey ? "Correct Match" : isCorrect ? "Matches Key" : "Different Match"}</span>
+              <span className="h-px flex-1 bg-current/25" />
+            </div>
+            <div className="flex items-start gap-2 pl-7">
+              <span className="mt-0.5 shrink-0 rounded bg-white/80 px-1.5 py-0.5 text-[11px] font-bold text-primary">
+                {String.fromCharCode(65 + rightIndex)}
+              </span>
+              <p className="min-w-0 flex-1 text-xs leading-5">{String(right[rightIndex] ?? `Choice ${rightIndex + 1}`)}</p>
+            </div>
+            {!answerKey && !isCorrect && correctRightIndex != null && (
+              <p className="mt-2 rounded bg-white/70 px-2 py-1 text-[11px] font-semibold text-on-surface-variant">
+                Correct: {String.fromCharCode(65 + correctRightIndex)}. {String(right[correctRightIndex] ?? `Choice ${correctRightIndex + 1}`)}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }

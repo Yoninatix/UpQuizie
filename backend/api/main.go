@@ -90,6 +90,7 @@ func main() {
 		// Learning materials (file upload -> RAG processing)
 		auth.GET("/subjects/:id/documents", requireSubjectAccess(), listDocuments)
 		auth.GET("/subjects/:id/generation-options", requireSubjectOwner(), generationOptions)
+		auth.PATCH("/subjects/:id/modules", requireSubjectOwner(), renameModule)
 		auth.POST("/subjects/:id/documents", requireSubjectOwner(), uploadDocument)
 		auth.DELETE("/subjects/:id/documents/:docId", requireSubjectOwner(), deleteDocument)
 

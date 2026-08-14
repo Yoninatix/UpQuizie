@@ -52,10 +52,11 @@ export function deriveEvidenceQuote(question: GroundedQuestion, expectedType: st
   const answer: any = question.answer;
   const anchors: string[] = [];
   if (expectedType === "mcq" && Array.isArray(question.options)) {
+    const options = question.options as unknown[];
     if (Array.isArray(answer?.correct_indices)) {
-      anchors.push(...answer.correct_indices.map((idx) => String(question.options[idx] ?? "")));
+      anchors.push(...answer.correct_indices.map((idx: number) => String(options[idx] ?? "")));
     } else if (Number.isInteger(answer?.correct_index)) {
-      anchors.push(String(question.options[answer.correct_index] ?? ""));
+      anchors.push(String(options[answer.correct_index] ?? ""));
     }
   } else if (expectedType === "fill_blank" && Array.isArray(answer?.accepted)) {
     anchors.push(...answer.accepted.map(String));
@@ -203,14 +204,17 @@ export function validateGroundedQuestion(
     if ([...left, ...right].some((value) => !appearsIn(value, source.text))) {
       return { valid: false, reason: "every matching item must occur in its cited document chunk" };
     }
-    // Reject terms that are extraction debris rather than concepts: bare
-    // function words ("This"), and PDF layout artifacts ("... PAGE 12").
+    // Column A items are the key terms. Reject extraction debris:
+    // bare function words ("This"), and PDF layout artifacts ("... PAGE 12").
     const FUNCTION_WORD = /^(?:this|that|these|those|the|a|an|it|its|and|or|for|with|from|each|such|then|when|which|there|here|where|what|how|why|who|is|are|was|were|be|of|in|on|at|to|by|as|if|but|not)$/i;
     if (left.some((value) => {
       const term = value.trim();
       return term.length < 3 || FUNCTION_WORD.test(term) || /\bpage\b\s*\d*$/i.test(term);
     })) {
       return { valid: false, reason: "matching terms must be real concepts, not stray words or layout artifacts" };
+    }
+    if (right.some((value) => value.trim().split(/\s+/).length < 3)) {
+      return { valid: false, reason: "matching responses must be definition-style statements" };
     }
     const usedLeft = new Set<number>();
     const usedRight = new Set<number>();
@@ -221,7 +225,7 @@ export function validateGroundedQuestion(
         return { valid: false, reason: "matching pairs must form a valid one-to-one mapping" };
       }
       if (normalized(right[pair[1]]).includes(normalized(left[pair[0]]))) {
-        return { valid: false, reason: "a matching statement must not contain the term it matches" };
+        return { valid: false, reason: "a matching definition must not contain the term it matches" };
       }
       usedLeft.add(pair[0]);
       usedRight.add(pair[1]);

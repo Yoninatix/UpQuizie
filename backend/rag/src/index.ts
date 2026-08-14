@@ -22,13 +22,43 @@ const QUESTION_TYPES = new Set(["mcq", "true_false", "fill_blank", "matching", "
 const DIFFICULTIES = new Set(["easy", "medium", "hard"]);
 
 function chunkByWords(text: string, size = 500, overlap = 50): string[] {
-  const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const normalizedText = text.replace(/\r\n?/g, "\n").trim();
+  const words = normalizedText.split(/\s+/).filter(Boolean);
   if (words.length === 0) return [];
-  if (words.length <= size) return [words.join(" ")];
+  if (words.length <= size) return [normalizedText];
+
+  const paragraphs = normalizedText.split(/\n{1,}/).map((part) => part.trim()).filter(Boolean);
   const chunks: string[] = [];
-  for (let start = 0; start < words.length; start += size - overlap) {
-    chunks.push(words.slice(start, start + size).join(" "));
+  let current: string[] = [];
+  let currentWords = 0;
+  let previousTail: string[] = [];
+
+  const flush = () => {
+    if (!current.length) return;
+    const chunk = current.join("\n").trim();
+    if (chunk) chunks.push(chunk);
+    previousTail = chunk.split(/\s+/).slice(-overlap);
+    current = previousTail.length ? [previousTail.join(" ")] : [];
+    currentWords = previousTail.length;
+  };
+
+  for (const paragraph of paragraphs) {
+    const paragraphWords = paragraph.split(/\s+/).filter(Boolean);
+    if (paragraphWords.length > size) {
+      flush();
+      for (let start = 0; start < paragraphWords.length; start += size - overlap) {
+        chunks.push(paragraphWords.slice(start, start + size).join(" "));
+      }
+      previousTail = paragraphWords.slice(-overlap);
+      current = previousTail.length ? [previousTail.join(" ")] : [];
+      currentWords = previousTail.length;
+      continue;
+    }
+    if (currentWords > overlap && currentWords + paragraphWords.length > size) flush();
+    current.push(paragraph);
+    currentWords += paragraphWords.length;
   }
+  flush();
   return chunks;
 }
 
@@ -97,7 +127,7 @@ function schemaFor(type: string, difficulty: string): string {
     case "fill_blank":
       return `Required fields: type="fill_blank", difficulty="${difficulty}", topic (string), prompt (string containing _____), options=null, answer (object with accepted array of actual source phrases).`;
     case "matching":
-      return `Required fields: type="matching", difficulty="${difficulty}", topic, prompt, options (object with left and right arrays copied from source), answer (object with one-to-one index pairs).`;
+      return `Required fields: type="matching", difficulty="${difficulty}", topic, prompt, options (object with left key term array for Column A and right definition array for Column B copied from source), answer (object with one-to-one index pairs mapping each left term index to its correct right definition index).`;
     case "essay":
       return `Required fields: type="essay", difficulty="${difficulty}", topic, prompt, options=null, answer (object with a source-grounded rubric string).`;
     default:
@@ -366,18 +396,22 @@ function deterministicQuestion(item: DistItem, source: GroundingSource, ordinal:
     if (allPairs.length < 2) return null;
     // Rotate through the available pairs so successive ordinals produce
     // different valid sets instead of sliding past the end of the list.
-    const size = Math.min(3, allPairs.length);
+    const size = Math.min(5, allPairs.length);
     const startIndex = (ordinal * size) % allPairs.length;
     const pairs = Array.from({ length: size }, (_, index) => allPairs[(startIndex + index) % allPairs.length])
       .filter((pair, index, all) => all.findIndex((p) => p.left.toLowerCase() === pair.left.toLowerCase()) === index);
     if (pairs.length < 2) return null;
     const left = pairs.map((pair) => pair.left);
-    const right = pairs.map((pair) => pair.right).reverse();
+    const definitions = pairs.map((pair) => pair.right).reverse();
+    const distractor = allPairs.find((pair) =>
+      !pairs.some((selected) => selected.left.toLowerCase() === pair.left.toLowerCase())
+    )?.right;
+    const right = unique(distractor ? [...definitions, distractor] : definitions);
     return {
       type: item.type, difficulty: item.difficulty, topic: topic || "Selected topic",
-      prompt: "Match each term with its corresponding statement.",
+      prompt: "Directions: Match the key terms in Column A with their correct definitions in Column B. Write the letter of the correct answer on the blank space before each number. Each option in Column B may be used only once.",
       options: { left, right },
-      answer: { pairs: pairs.map((_, index) => [index, pairs.length - 1 - index]) },
+      answer: { pairs: pairs.map((pair, index) => [index, right.findIndex((definition) => definition.toLowerCase() === pair.right.toLowerCase())]) },
       source_index: 1, source_quote: pairs[0].evidence,
     };
   }
@@ -671,8 +705,11 @@ Rules:
 - For a false true/false item, change only one important fact from the supported statement.
 - For fill-blank, replace exactly one important word, number, or short phrase with _____. Provide one or more accepted answers as valid alternate responses. There must still be only one blank.
 - For essay, ask students to explain a concept discussed in the source and provide a rubric containing the key points expected in a correct answer.
-- For matching, match source terms with their definitions; every left and right item must be supported by the cited SOURCE.
-- For matching, a right-side statement must never contain or name its matched left-side term; describe it without repeating it, or the answer is given away.
+- For matching, use strict RAG matching format: Column A contains numbered key terms, and Column B contains lettered definitions.
+- For matching, store Column A terms in options.left and Column B definitions in options.right. Provide answer.pairs as [left_term_index, right_definition_index].
+- For matching, create exactly 5 Column A terms only when the supplied excerpts explicitly support 5 complete term-definition pairs. If fewer than 5 clear pairs are supported, return only the supported number. Never invent missing pairs.
+- For matching, scramble Column B so definitions do not line up with the correct Column A terms. Column B may include one extra source-supported distractor definition only when it is explicitly stated in the source.
+- For matching, a Column B definition must never contain or name its matched Column A term; otherwise the answer is given away.
 - For fill-blank, every accepted answer must appear verbatim in source_quote.
 - If the excerpts cannot support a valid question, return fewer objects. Do not invent content or placeholders.
 - All questions must be different from each other.

@@ -44,8 +44,8 @@ export function jsonSchemaFor(type: string, difficulty: string, want: number): R
         options: {
           type: "object",
           properties: {
-            left: { type: "array", minItems: 2, items: { type: "string", minLength: 1 } },
-            right: { type: "array", minItems: 2, items: { type: "string", minLength: 1 } },
+            left: { type: "array", minItems: 2, maxItems: 5, items: { type: "string", minLength: 1 } },
+            right: { type: "array", minItems: 2, maxItems: 6, items: { type: "string", minLength: 1 } },
           },
           required: ["left", "right"],
         },
