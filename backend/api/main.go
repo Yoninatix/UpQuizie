@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -52,7 +54,7 @@ func main() {
 
 	origins := strings.Split(getenv("CORS_ORIGINS", "http://localhost:8080,http://localhost:5173"), ",")
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     origins,
+		AllowOriginFunc:  func(origin string) bool { return originAllowed(origin, origins) },
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,
@@ -152,6 +154,29 @@ func getenv(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// originAllowed accepts anything explicitly listed in CORS_ORIGINS, plus any
+// loopback or private-network address on any port. The host's LAN IP is
+// DHCP-assigned and changes between sessions, so pinning it in configuration
+// silently breaks sharing; matching the private ranges keeps LAN demos working
+// without widening access to the public internet.
+func originAllowed(origin string, allowList []string) bool {
+	for _, allowed := range allowList {
+		if strings.EqualFold(strings.TrimSpace(allowed), origin) {
+			return true
+		}
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
 }
 
 func ensureSchema() {
