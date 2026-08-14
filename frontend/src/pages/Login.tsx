@@ -17,7 +17,12 @@ export default function Login() {
     setBusy(true);
     try {
       const user = await login(email, password);
-      const destination = user.role === "teacher" ? "/teacher" : user.role === "admin" ? "/admin/users" : "/student";
+      const destination =
+        user.role === "teacher"
+          ? "/subjects"
+          : user.role === "admin"
+            ? "/admin/users"
+            : "/student";
       nav(destination, { replace: true });
     } catch (err: any) {
       setError(err.message);
@@ -32,7 +37,9 @@ export default function Login() {
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-2 mb-2">
             <Icon name="school" className="text-primary text-4xl" />
-            <h1 className="font-headline text-2xl text-primary font-bold">UpQuiz</h1>
+            <h1 className="font-headline text-2xl text-primary font-bold">
+              UpQuiz
+            </h1>
           </div>
           <p className="text-xs text-on-surface-variant uppercase tracking-widest">
             Academic Intelligence Portal
@@ -40,8 +47,12 @@ export default function Login() {
         </div>
 
         <div className="bg-surface-container-lowest border border-outline-variant rounded-xl shadow-sm p-8">
-          <h2 className="font-headline text-2xl text-on-surface mb-1">Welcome back</h2>
-          <p className="text-on-surface-variant mb-8">Sign in to access your portal.</p>
+          <h2 className="font-headline text-2xl text-on-surface mb-1">
+            Welcome back
+          </h2>
+          <p className="text-on-surface-variant mb-8">
+            Sign in to access your portal.
+          </p>
 
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-error-container text-on-error-container text-sm">
@@ -51,9 +62,14 @@ export default function Login() {
 
           <form onSubmit={submit} className="space-y-5">
             <div>
-              <label className="block text-sm font-semibold text-on-surface mb-2">Email</label>
+              <label className="block text-sm font-semibold text-on-surface mb-2">
+                Email
+              </label>
               <div className="relative">
-                <Icon name="alternate_email" className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" />
+                <Icon
+                  name="alternate_email"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-outline"
+                />
                 <input
                   type="email"
                   value={email}
@@ -64,9 +80,14 @@ export default function Login() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-on-surface mb-2">Password</label>
+              <label className="block text-sm font-semibold text-on-surface mb-2">
+                Password
+              </label>
               <div className="relative">
-                <Icon name="lock" className="absolute left-3 top-1/2 -translate-y-1/2 text-outline" />
+                <Icon
+                  name="lock"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-outline"
+                />
                 <input
                   type="password"
                   value={password}
@@ -88,7 +109,10 @@ export default function Login() {
 
           <p className="mt-6 text-center text-sm text-on-surface-variant">
             Don't have an account?{" "}
-            <Link to="/register" className="text-primary font-semibold hover:underline">
+            <Link
+              to="/register"
+              className="text-primary font-semibold hover:underline"
+            >
               Sign Up
             </Link>
           </p>

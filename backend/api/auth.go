@@ -74,6 +74,12 @@ func handleRegister(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
 		return
 	}
+	token, err := issueToken(id, role)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
+		return
+	}
+	setAuthCookie(c, token)
 	c.JSON(http.StatusCreated, gin.H{
 		"user": gin.H{"id": id, "email": req.Email, "full_name": req.FullName, "role": role},
 	})
