@@ -35,7 +35,9 @@ function Home() {
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === "admin") return <Navigate to="/admin/users" replace />;
   if (user.role === "student") return <Navigate to="/student" replace />;
-  if (user.role === "teacher") return <Navigate to="/teacher" replace />;
+  // Teachers start at their subject list; question generation is reached from
+  // inside a subject rather than being the landing page.
+  if (user.role === "teacher") return <Navigate to="/subjects" replace />;
   return <Navigate to="/login" replace />;
 }
 

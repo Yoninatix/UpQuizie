@@ -34,7 +34,7 @@ export default function Register() {
       const user = await register({ ...form, role });
       const destination =
         user.role === "teacher"
-          ? "/teacher"
+          ? "/subjects"
           : user.role === "admin"
             ? "/admin/users"
             : "/student";
