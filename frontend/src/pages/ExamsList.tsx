@@ -6,7 +6,7 @@ import { api, Exam } from "../api";
 import { useAuth } from "../auth";
 
 interface Perf {
-  attempts: { id: string; title: string; subject: string; score: number | null; total_points: number | null; status: string }[];
+  attempts: { id: string; exam_id: string; title: string; subject: string; score: number | null; total_points: number | null; status: string }[];
 }
 
 export default function ExamsList() {
@@ -20,6 +20,7 @@ export default function ExamsList() {
 
   const active = exams.filter((e) => e.status === "published");
   const completed = perf?.attempts.filter((a) => a.status !== "in_progress") || [];
+  const attemptByExam = new Map((perf?.attempts || []).map((attempt) => [attempt.exam_id, attempt]));
 
   // Teacher/admin: simple grid of all exams.
   if (!isStudent) {
@@ -51,34 +52,44 @@ export default function ExamsList() {
 
       {tab === "active" && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {active.map((e) => (
-            <div key={e.id} className="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 flex flex-col">
-              <div className="flex justify-between items-start mb-4">
-                <span className="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-xs uppercase tracking-wider">
-                  {e.starts_at && new Date(e.starts_at).getTime() > Date.now() ? "Scheduled" : "Open"}
-                </span>
-                <Icon name="timer" className="text-secondary" />
+          {active.map((e) => {
+            const attempt = attemptByExam.get(e.id);
+            const completedAttempt = attempt?.status && attempt.status !== "in_progress" ? attempt : null;
+            const opensLater = e.starts_at && new Date(e.starts_at).getTime() > Date.now();
+            return (
+              <div key={e.id} className="bg-surface-container-lowest rounded-xl border border-outline-variant p-6 flex flex-col">
+                <div className="flex justify-between items-start mb-4">
+                  <span className={`px-3 py-1 rounded-full text-xs uppercase tracking-wider ${completedAttempt ? "bg-surface-container-high text-on-surface-variant" : "bg-secondary-container text-on-secondary-container"}`}>
+                    {completedAttempt ? "Completed" : opensLater ? "Scheduled" : "Open"}
+                  </span>
+                  <Icon name={completedAttempt ? "check_circle" : "timer"} className="text-secondary" />
+                </div>
+                <h3 className="font-headline text-lg text-primary mb-1">{e.title}</h3>
+                <p className="text-on-surface-variant text-sm mb-4">{e.subject}</p>
+                <div className="space-y-2 mb-6 text-sm text-on-surface-variant">
+                  <div className="flex items-center gap-2"><Icon name="schedule" className="text-[18px]" /> {e.duration_min} minutes</div>
+                  <div className="flex items-center gap-2"><Icon name="grade" className="text-[18px]" /> {e.total_points} points</div>
+                  {e.starts_at && <div className="flex items-center gap-2"><Icon name="event" className="text-[18px]" /> Opens {new Date(e.starts_at).toLocaleString()}</div>}
+                  {e.due_at && <div className="flex items-center gap-2"><Icon name="event_busy" className="text-[18px]" /> Due {new Date(e.due_at).toLocaleString()}</div>}
+                </div>
+                {completedAttempt ? (
+                  <button onClick={() => nav(`/attempts/${completedAttempt.id}/results`)}
+                    className="mt-auto w-full bg-surface-container-high text-primary py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-surface-variant">
+                    Completed <Icon name="check_circle" className="text-[20px]" />
+                  </button>
+                ) : opensLater ? (
+                  <button disabled className="mt-auto w-full bg-surface-container-high text-on-surface-variant py-3 rounded-lg font-semibold">
+                    Opens later
+                  </button>
+                ) : (
+                  <button onClick={() => nav(`/exams/${e.id}/take`)}
+                    className="mt-auto w-full bg-secondary text-on-secondary py-3 rounded-lg font-semibold flex items-center justify-center gap-2">
+                    Take Exam <Icon name="arrow_forward" className="text-[20px]" />
+                  </button>
+                )}
               </div>
-              <h3 className="font-headline text-lg text-primary mb-1">{e.title}</h3>
-              <p className="text-on-surface-variant text-sm mb-4">{e.subject}</p>
-              <div className="space-y-2 mb-6 text-sm text-on-surface-variant">
-                <div className="flex items-center gap-2"><Icon name="schedule" className="text-[18px]" /> {e.duration_min} minutes</div>
-                <div className="flex items-center gap-2"><Icon name="grade" className="text-[18px]" /> {e.total_points} points</div>
-                {e.starts_at && <div className="flex items-center gap-2"><Icon name="event" className="text-[18px]" /> Opens {new Date(e.starts_at).toLocaleString()}</div>}
-                {e.due_at && <div className="flex items-center gap-2"><Icon name="event_busy" className="text-[18px]" /> Due {new Date(e.due_at).toLocaleString()}</div>}
-              </div>
-              {e.starts_at && new Date(e.starts_at).getTime() > Date.now() ? (
-                <button disabled className="mt-auto w-full bg-surface-container-high text-on-surface-variant py-3 rounded-lg font-semibold">
-                  Opens later
-                </button>
-              ) : (
-                <button onClick={() => nav(`/exams/${e.id}/take`)}
-                  className="mt-auto w-full bg-secondary text-on-secondary py-3 rounded-lg font-semibold flex items-center justify-center gap-2">
-                  Take Exam <Icon name="arrow_forward" className="text-[20px]" />
-                </button>
-              )}
-            </div>
-          ))}
+            );
+          })}
           {active.length === 0 && <p className="text-on-surface-variant">No active exams.</p>}
         </div>
       )}

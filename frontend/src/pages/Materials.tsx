@@ -56,6 +56,9 @@ function SubjectMaterials({ subjectId, subjects }: { subjectId: string; subjects
   const [uploadModule, setUploadModule] = useState("Module 1");
   const [customModules, setCustomModules] = useState<string[]>([]);
   const [newModule, setNewModule] = useState("");
+  const [editingModule, setEditingModule] = useState("");
+  const [moduleDraft, setModuleDraft] = useState("");
+  const [renameError, setRenameError] = useState("");
   const subject = subjects.find((s) => s.id === subjectId);
   const canManage = user?.role === "teacher" || user?.role === "admin";
 
@@ -65,8 +68,10 @@ function SubjectMaterials({ subjectId, subjects }: { subjectId: string; subjects
     refetchInterval: 4000,
   });
   const moduleLabels = useMemo(() => {
-    const labels = docs.map((doc) => doc.module_label || "Module 1");
-    return Array.from(new Set(["Module 1", ...customModules, ...labels])).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const labels = [...customModules, ...docs.map((doc) => doc.module_label || "Module 1")];
+    const uniqueLabels = Array.from(new Set(labels));
+    if (uniqueLabels.length === 0) uniqueLabels.push("Module 1");
+    return uniqueLabels.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }, [customModules, docs]);
   const groupedDocs = useMemo(() => {
     return docs.reduce<Record<string, DocumentMeta[]>>((groups, doc) => {
@@ -95,6 +100,44 @@ function SubjectMaterials({ subjectId, subjects }: { subjectId: string; subjects
     },
     onSettled: () => qc.invalidateQueries({ queryKey: ["documents", subjectId] }),
   });
+
+  const renameModule = useMutation({
+    mutationFn: ({ from, to }: { from: string; to: string }) =>
+      api.patch<{ ok: boolean; updated: number; module_label: string }>(`/subjects/${subjectId}/modules`, { from, to }),
+    onSuccess: (_, { from, to }) => {
+      setCustomModules((modules) =>
+        Array.from(new Set(modules.map((label) => label === from ? to : label))),
+      );
+      setUploadModule((label) => label === from ? to : label);
+      setEditingModule("");
+      setModuleDraft("");
+      setRenameError("");
+      qc.invalidateQueries({ queryKey: ["documents", subjectId] });
+      qc.invalidateQueries({ queryKey: ["generation-options", subjectId] });
+    },
+    onError: (error) => setRenameError((error as Error).message),
+  });
+
+  const beginRename = (moduleLabel: string) => {
+    setEditingModule(moduleLabel);
+    setModuleDraft(moduleLabel);
+    setRenameError("");
+  };
+
+  const submitRename = (from: string) => {
+    const to = moduleDraft.trim().replace(/\s+/g, " ");
+    if (!to) {
+      setRenameError("Module name is required.");
+      return;
+    }
+    if (to === from) {
+      setEditingModule("");
+      setModuleDraft("");
+      setRenameError("");
+      return;
+    }
+    renameModule.mutate({ from, to });
+  };
 
   const openUpload = (moduleLabel: string) => {
     setUploadModule(moduleLabel);
@@ -189,10 +232,69 @@ function SubjectMaterials({ subjectId, subjects }: { subjectId: string; subjects
           return (
             <section key={label} className="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden">
               <div className="px-6 py-4 bg-surface-container-low border-b border-outline-variant flex items-center justify-between gap-3">
-                <h3 className="font-headline text-lg font-bold text-primary flex items-center gap-2">
-                  <Icon name="folder" className="text-[22px]" /> {label}
-                </h3>
-                <span className="text-xs font-semibold text-on-surface-variant">{moduleDocs.length} material{moduleDocs.length === 1 ? "" : "s"}</span>
+                <div className="min-w-0 flex-1">
+                  {editingModule === label ? (
+                    <div>
+                      <form
+                        className="flex flex-col sm:flex-row sm:items-center gap-2"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          submitRename(label);
+                        }}
+                      >
+                        <div className="min-w-0 flex-1 flex items-center gap-2">
+                          <Icon name="folder" className="text-[22px] text-primary shrink-0" />
+                          <input
+                            value={moduleDraft}
+                            onChange={(event) => setModuleDraft(event.target.value)}
+                            className="min-w-0 w-full max-w-md border border-outline-variant rounded-lg px-3 py-2 bg-white text-on-surface font-semibold"
+                            autoFocus
+                          />
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="submit"
+                            disabled={renameModule.isPending}
+                            className="p-2 rounded-lg text-secondary hover:bg-secondary-container disabled:opacity-50"
+                            title="Save module name"
+                          >
+                            <Icon name={renameModule.isPending ? "sync" : "check"} className={renameModule.isPending ? "animate-spin" : ""} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingModule("");
+                              setModuleDraft("");
+                              setRenameError("");
+                            }}
+                            disabled={renameModule.isPending}
+                            className="p-2 rounded-lg text-on-surface-variant hover:bg-surface-container-high disabled:opacity-50"
+                            title="Cancel rename"
+                          >
+                            <Icon name="close" />
+                          </button>
+                        </div>
+                      </form>
+                      {renameError && <p className="mt-2 text-sm text-error">{renameError}</p>}
+                    </div>
+                  ) : (
+                    <h3 className="font-headline text-lg font-bold text-primary flex items-center gap-2 min-w-0">
+                      <Icon name="folder" className="text-[22px] shrink-0" />
+                      <span className="truncate">{label}</span>
+                      {canManage && (
+                        <button
+                          type="button"
+                          onClick={() => beginRename(label)}
+                          className="p-1.5 rounded-lg text-on-surface-variant hover:text-secondary hover:bg-secondary-container transition-colors"
+                          title="Rename module"
+                        >
+                          <Icon name="edit" className="text-[18px]" />
+                        </button>
+                      )}
+                    </h3>
+                  )}
+                </div>
+                <span className="shrink-0 text-xs font-semibold text-on-surface-variant">{moduleDocs.length} material{moduleDocs.length === 1 ? "" : "s"}</span>
               </div>
               {moduleDocs.length > 0 ? (
                 <table className="w-full text-left">
@@ -215,6 +317,9 @@ function SubjectMaterials({ subjectId, subjects }: { subjectId: string; subjects
                           <span className={`px-2 py-1 rounded-full text-xs font-bold capitalize ${statusStyle[d.status] || ""}`}>
                             {d.status}
                           </span>
+                          {d.status === "error" && d.error && (
+                            <p className="mt-1 max-w-xs text-xs text-error">{d.error}</p>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-right">
                           <button

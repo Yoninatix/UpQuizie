@@ -4,7 +4,7 @@ import { deriveEvidenceQuote, validateGroundedQuestion } from "./grounding.js";
 
 const sources = [{
   document_id: "doc-1",
-  text: "Photosynthesis occurs in the chloroplast. Chlorophyll absorbs red light and blue light. Mitochondria release energy from food. Stomata regulate gas exchange.",
+  text: "Photosynthesis occurs in the chloroplast. Chlorophyll absorbs red light and blue light. Mitochondria release energy from food. Stomata regulate gas exchange. ATP (adenosine triphosphate) stores energy in cells. The planet Mars is the fourth planet from the Sun.",
 }];
 
 test("accepts an MCQ whose choices and correct answer are grounded", () => {
@@ -141,7 +141,7 @@ test("rejects overly long question wording", () => {
 
 test("allows a concise generic matching instruction when every pair is grounded", () => {
   const result = validateGroundedQuestion({
-    type: "matching", prompt: "Match each term with its corresponding statement.",
+    type: "matching", prompt: "Directions: Match the key terms in Column A with their correct definitions in Column B.",
     options: {
       left: ["Photosynthesis", "Stomata"],
       right: ["regulate gas exchange", "occurs in the chloroplast"],
@@ -154,7 +154,7 @@ test("allows a concise generic matching instruction when every pair is grounded"
 
 test("rejects a matching statement that names the term it matches", () => {
   const result = validateGroundedQuestion({
-    type: "matching", prompt: "Match each term with its corresponding statement.",
+    type: "matching", prompt: "Directions: Match the key terms in Column A with their correct definitions in Column B.",
     options: {
       left: ["Photosynthesis", "Stomata"],
       // The first statement gives its own answer away.
@@ -169,12 +169,12 @@ test("rejects a matching statement that names the term it matches", () => {
 
 test("rejects matching pairs that are not one-to-one", () => {
   const result = validateGroundedQuestion({
-    type: "matching", prompt: "Match each term with its corresponding statement.",
+    type: "matching", prompt: "Directions: Match the key terms in Column A with their correct definitions in Column B.",
     options: {
       left: ["Photosynthesis", "Stomata"],
       right: ["regulate gas exchange", "occurs in the chloroplast"],
     },
-    // Both terms claim the same statement.
+    // Both terms claim the same definition.
     answer: { pairs: [[0, 1], [1, 1]] }, source_index: 1,
     source_quote: "Photosynthesis occurs in the chloroplast.",
   }, "matching", sources);
@@ -254,7 +254,7 @@ test("accepts a fill-blank answer that is a number", () => {
 
 test("rejects matching terms that are stray function words", () => {
   const result = validateGroundedQuestion({
-    type: "matching", prompt: "Match each term with its corresponding statement.",
+    type: "matching", prompt: "Directions: Match the key terms in Column A with their correct definitions in Column B.",
     options: {
       // "The" is extraction debris, not a concept a student can match.
       left: ["The", "Stomata"],

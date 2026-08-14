@@ -310,9 +310,9 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
     <>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
-          <h3 className="font-headline text-xl text-primary">Review Generated Questions</h3>
+          <h3 className="font-headline text-xl text-primary">Build Question Set</h3>
           <p className="text-on-surface-variant text-sm">
-            Edit, save, and select questions to build an exam.
+            Review new AI-generated questions separately from questions reused from previous quizzes.
           </p>
         </div>
         {!controlledSubjectId && (
@@ -358,118 +358,146 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
       </div>
       {msg && <p className="text-sm text-secondary mb-4">{msg}</p>}
 
-      <div className="space-y-6">
-        {questions.map((q, idx) => {
-          const d = drafts[q.id] || { prompt: asText(q.prompt), points: q.points, options: q.options, answer: q.answer };
-          const isSel = !!selected[q.id];
-          return (
-            <section key={q.id}
-              className={`bg-surface-container-lowest border rounded-xl shadow-sm overflow-hidden transition-all ${isSel ? "border-secondary ring-1 ring-secondary" : "border-outline-variant"}`}>
-              <div className="p-6 space-y-4">
-                {/* Header row */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="w-8 h-8 rounded bg-primary text-on-primary flex items-center justify-center font-bold text-sm">
-                      {String(idx + 1).padStart(2, "0")}
-                    </span>
-                    <div className="flex gap-2 flex-wrap items-center">
-                      <span className="px-3 py-1 rounded-full bg-surface-container-high text-on-surface-variant text-xs font-semibold">
-                        {typeLabel[q.type] || asText(q.type)}
+      <section className="overflow-hidden rounded-xl border-2 border-secondary/30 bg-secondary-container/10">
+        <div className="border-b border-secondary/20 bg-surface-container-lowest px-5 py-4 md:px-6">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-secondary-container text-secondary">
+                <Icon name="auto_awesome" />
+              </div>
+              <div>
+                <h3 className="font-headline text-lg font-bold text-primary">New Generated Questions</h3>
+                <p className="text-sm text-on-surface-variant">Fresh questions from the selected uploaded material. Edit these before adding them to a quiz.</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs font-bold uppercase">
+              <span className="rounded-full bg-secondary text-on-secondary px-3 py-1">{questions.length} generated</span>
+              <span className="rounded-full bg-white px-3 py-1 text-secondary border border-secondary/30">{chosen.length} included</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-5 p-4 md:p-5">
+          {questions.map((q, idx) => {
+            const d = drafts[q.id] || { prompt: asText(q.prompt), points: q.points, options: q.options, answer: q.answer };
+            const isSel = !!selected[q.id];
+            return (
+              <section key={q.id}
+                className={`bg-surface-container-lowest border rounded-xl shadow-sm overflow-hidden transition-all ${isSel ? "border-secondary ring-1 ring-secondary" : "border-outline-variant"}`}>
+                <div className="p-6 space-y-4">
+                  {/* Header row */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="w-8 h-8 rounded bg-secondary text-on-secondary flex items-center justify-center font-bold text-sm">
+                        {String(idx + 1).padStart(2, "0")}
                       </span>
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${diffStyle[q.difficulty] || "bg-surface-container-high"}`}>
-                        {asText(q.difficulty)}
-                      </span>
-                      <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-surface-container-high text-on-surface-variant text-xs border border-outline-variant">
-                        <Icon name="grade" className="text-[14px]" />
-                        <input type="number" min={1} value={d.points}
-                          onChange={(e) => setDraft(q.id, { points: Number(e.target.value) })}
-                          className="w-8 bg-transparent border-none p-0 focus:ring-0 text-xs" /> pts
-                      </span>
-                      {q.topic && (
-                        <span className="px-3 py-1 rounded-full bg-secondary-container text-on-secondary-container text-xs">
-                          {asText(q.topic)}
+                      <div className="flex gap-2 flex-wrap items-center">
+                        <span className="px-3 py-1 rounded-full bg-secondary-container text-on-secondary-container text-xs font-bold">
+                          Generated
                         </span>
-                      )}
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${q.status === "approved" ? "bg-green-100 text-green-800" : "bg-orange-100 text-orange-800"}`}>
-                        {q.status || "pending"}
-                      </span>
+                        <span className="px-3 py-1 rounded-full bg-surface-container-high text-on-surface-variant text-xs font-semibold">
+                          {typeLabel[q.type] || asText(q.type)}
+                        </span>
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${diffStyle[q.difficulty] || "bg-surface-container-high"}`}>
+                          {asText(q.difficulty)}
+                        </span>
+                        <span className="flex items-center gap-1 px-3 py-1 rounded-full bg-surface-container-high text-on-surface-variant text-xs border border-outline-variant">
+                          <Icon name="grade" className="text-[14px]" />
+                          <input type="number" min={1} value={d.points}
+                            onChange={(e) => setDraft(q.id, { points: Number(e.target.value) })}
+                            className="w-8 bg-transparent border-none p-0 focus:ring-0 text-xs" /> pts
+                        </span>
+                        {q.topic && (
+                          <span className="px-3 py-1 rounded-full bg-primary-container/20 text-primary text-xs">
+                            {asText(q.topic)}
+                          </span>
+                        )}
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold capitalize ${q.status === "approved" ? "bg-green-100 text-green-800" : "bg-orange-100 text-orange-800"}`}>
+                          {q.status || "pending"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-1 text-xs text-on-surface-variant cursor-pointer mr-1">
+                        <input type="checkbox" checked={isSel}
+                          onChange={(e) => setSelected((s) => ({ ...s, [q.id]: e.target.checked }))} />
+                        Include
+                      </label>
+                      <button onClick={() => reject.mutate(q.id)}
+                        className="p-2 text-on-surface-variant hover:bg-error-container hover:text-error rounded transition-colors" title="Reject">
+                        <Icon name="delete" />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-1 text-xs text-on-surface-variant cursor-pointer mr-1">
-                      <input type="checkbox" checked={isSel}
-                        onChange={(e) => setSelected((s) => ({ ...s, [q.id]: e.target.checked }))} />
-                      Include
-                    </label>
-                    <button onClick={() => reject.mutate(q.id)}
-                      className="p-2 text-on-surface-variant hover:bg-error-container hover:text-error rounded transition-colors" title="Reject">
-                      <Icon name="delete" />
-                    </button>
+
+                  {/* Question text */}
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-outline">Question Text</label>
+                    <textarea ref={(node) => { promptRefs.current[q.id] = node; }} rows={2} value={d.prompt}
+                      onChange={(e) => setDraft(q.id, { prompt: e.target.value })}
+                      className="w-full bg-surface border border-outline-variant rounded-lg p-3 text-body-md focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none" />
                   </div>
+
+                  <QuestionImageEditor
+                    question={q}
+                    uploading={uploadQuestionImage.isPending}
+                    removing={removeQuestionImage.isPending}
+                    onUpload={(file) => uploadQuestionImage.mutate({ id: q.id, file })}
+                    onInsert={() => insertInlineImage(q)}
+                    onRemove={() => removeQuestionImage.mutate(q.id)}
+                  />
+
+                  {/* Answer editor by type */}
+                  <AnswerEditor q={q} draft={d} setDraft={(p) => setDraft(q.id, p)} />
+
+                  {/* Source reference */}
+                  {q.source_ref && (
+                    <details className="group border-t border-outline-variant pt-3">
+                      <summary className="flex items-center gap-2 cursor-pointer text-secondary text-sm font-semibold list-none">
+                        <Icon name="expand_more" className="transition-transform group-open:rotate-180" />
+                        View Source Reference
+                      </summary>
+                      <div className="mt-3 p-3 bg-surface rounded-lg border-l-4 border-secondary text-on-surface-variant italic text-sm">
+                        {asText(q.source_ref)}
+                      </div>
+                    </details>
+                  )}
                 </div>
 
-                {/* Question text */}
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-outline">Question Text</label>
-                  <textarea ref={(node) => { promptRefs.current[q.id] = node; }} rows={2} value={d.prompt}
-                    onChange={(e) => setDraft(q.id, { prompt: e.target.value })}
-                    className="w-full bg-surface border border-outline-variant rounded-lg p-3 text-body-md focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none" />
+                {/* Footer */}
+                <div className="bg-surface-container-low px-6 py-3 flex justify-end gap-3">
+                  <button onClick={() => reject.mutate(q.id)}
+                    className="text-on-surface-variant text-sm font-semibold hover:text-error">Discard</button>
+                  <button onClick={() => save.mutate({ id: q.id, d })}
+                    disabled={save.isPending}
+                    className="bg-secondary text-on-secondary px-4 py-1.5 rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-60">
+                    Save Changes
+                  </button>
                 </div>
+              </section>
+            );
+          })}
 
-                <QuestionImageEditor
-                  question={q}
-                  uploading={uploadQuestionImage.isPending}
-                  removing={removeQuestionImage.isPending}
-                  onUpload={(file) => uploadQuestionImage.mutate({ id: q.id, file })}
-                  onInsert={() => insertInlineImage(q)}
-                  onRemove={() => removeQuestionImage.mutate(q.id)}
-                />
+          {questions.length === 0 && (
+            <p className="rounded-lg border border-dashed border-secondary/30 bg-white px-4 py-6 text-center text-on-surface-variant">
+              No generated questions yet. Use the generator above.
+            </p>
+          )}
+        </div>
+      </section>
 
-                {/* Answer editor by type */}
-                <AnswerEditor q={q} draft={d} setDraft={(p) => setDraft(q.id, p)} />
-
-                {/* Source reference */}
-                {q.source_ref && (
-                  <details className="group border-t border-outline-variant pt-3">
-                    <summary className="flex items-center gap-2 cursor-pointer text-secondary text-sm font-semibold list-none">
-                      <Icon name="expand_more" className="transition-transform group-open:rotate-180" />
-                      View Source Reference
-                    </summary>
-                    <div className="mt-3 p-3 bg-surface rounded-lg border-l-4 border-secondary text-on-surface-variant italic text-sm">
-                      {asText(q.source_ref)}
-                    </div>
-                  </details>
-                )}
-              </div>
-
-              {/* Footer */}
-              <div className="bg-surface-container-low px-6 py-3 flex justify-end gap-3">
-                <button onClick={() => reject.mutate(q.id)}
-                  className="text-on-surface-variant text-sm font-semibold hover:text-error">Discard</button>
-                <button onClick={() => save.mutate({ id: q.id, d })}
-                  disabled={save.isPending}
-                  className="bg-secondary text-on-secondary px-4 py-1.5 rounded-lg text-sm font-semibold hover:opacity-90 disabled:opacity-60">
-                  Save Changes
-                </button>
-              </div>
-            </section>
-          );
-        })}
-
-        {questions.length === 0 && (
-          <p className="text-on-surface-variant">No generated questions yet. Use the generator above.</p>
-        )}
-      </div>
-
-      <section className="mt-8 bg-surface-container-lowest border border-outline-variant rounded-xl overflow-hidden">
+      <section className="mt-8 bg-surface-container-lowest border-2 border-dashed border-outline-variant rounded-xl overflow-hidden">
         <div className="px-6 py-4 bg-surface-container-low border-b border-outline-variant flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
-              <Icon name="history_edu" className="text-secondary" />
-              <h3 className="font-headline text-lg font-bold text-primary">Reuse Previous Exam Questions</h3>
+              <Icon name="inventory_2" className="text-primary" />
+              <h3 className="font-headline text-lg font-bold text-primary">Question Bank / Used Quizzes</h3>
+              <span className="rounded-full bg-surface-container-high px-3 py-1 text-xs font-bold uppercase text-on-surface-variant">
+                Optional reuse
+              </span>
             </div>
             <p className="text-sm text-on-surface-variant mt-1">
-              Add questions from earlier quizzes when building finals or long exams.
+              Previously used quiz questions stay here, visually separate from the new generated questions above.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -793,16 +821,30 @@ function PreviewOptions({ question, options, answer, compact = false }: { questi
     const pairs: number[][] = Array.isArray(answer?.pairs) ? answer.pairs : [];
     return (
       <div className={`${compact ? "mt-3" : "mt-4"} space-y-3 text-sm`}>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">{left.map((item: unknown, index: number) => <p key={index} className="bg-surface-container-low rounded px-3 py-2">{index + 1}. {asText(item)}</p>)}</div>
-          <div className="space-y-1">{right.map((item: unknown, index: number) => <p key={index} className="bg-surface-container-low rounded px-3 py-2">{String.fromCharCode(65 + index)}. {asText(item)}</p>)}</div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-on-surface-variant">Column A (Key Terms)</p>
+            <div className="space-y-1">
+              {left.map((item: unknown, index: number) => (
+                <p key={index} className="bg-surface-container-low rounded px-3 py-2">___ {index + 1}. {asText(item)}</p>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-on-surface-variant">Column B (Definitions)</p>
+            <div className="space-y-1">
+              {right.map((item: unknown, index: number) => (
+                <p key={index} className="bg-surface-container-low rounded px-3 py-2">{String.fromCharCode(65 + index)}. {asText(item)}</p>
+              ))}
+            </div>
+          </div>
         </div>
         {pairs.length > 0 && (
           <div className="rounded-lg border border-secondary bg-secondary-container/20 p-3 text-secondary">
-            <p className="text-xs uppercase font-bold tracking-wide mb-2">Correct pairs</p>
+            <p className="text-xs uppercase font-bold tracking-wide mb-2">Answer key</p>
             <div className="space-y-1">
               {pairs.map(([leftIndex, rightIndex], index) => (
-                <p key={index}>{asText(left[leftIndex])} {"->"} {asText(right[rightIndex])}</p>
+                <p key={index}>{leftIndex + 1}. {String.fromCharCode(65 + rightIndex)} - {asText(right[rightIndex])}</p>
               ))}
             </div>
           </div>
@@ -886,11 +928,12 @@ function AnswerEditor({ q, draft, setDraft }: { q: Question; draft: Draft; setDr
     const pairs: number[][] = Array.isArray(draft.answer?.pairs) ? draft.answer.pairs : [];
     return (
       <div className="space-y-1.5">
-        <AiAnswerHeading label="Correct Pairs" />
+        <AiAnswerHeading label="Matching Answer Key" />
         <div className="space-y-2 text-sm">
           {pairs.map(([leftIndex, rightIndex], index) => (
-            <div key={index} className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 p-3 rounded-lg border border-primary/40 bg-primary/5 text-primary">
-              <span className="font-semibold">{left[leftIndex]}</span><Icon name="arrow_forward" className="text-[18px]" /><span>{right[rightIndex]}</span>
+            <div key={index} className="grid grid-cols-[auto_1fr] items-center gap-3 p-3 rounded-lg border border-primary/40 bg-primary/5 text-primary">
+              <span className="font-bold">{leftIndex + 1}. {String.fromCharCode(65 + rightIndex)}</span>
+              <span>{left[leftIndex]} - {right[rightIndex]}</span>
             </div>
           ))}
         </div>

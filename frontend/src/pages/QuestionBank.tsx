@@ -167,7 +167,20 @@ function AnswerPreview({ question }: { question: Question }) {
     return <p className="text-sm text-on-surface-variant mt-3">Rubric: {optionText(question.answer?.rubric || question.answer)}</p>;
   }
   if (question.type === "matching") {
-    return <p className="text-sm text-on-surface-variant mt-3">Matching answer pairs are stored for grading.</p>;
+    const left = Array.isArray(question.options?.left) ? question.options.left : [];
+    const right = Array.isArray(question.options?.right) ? question.options.right : [];
+    return (
+      <div className="grid gap-2 md:grid-cols-2 mt-3 text-sm">
+        <div className="space-y-1">
+          <p className="text-xs font-bold uppercase text-on-surface-variant">Column A (Key Terms)</p>
+          {left.map((item: unknown, index: number) => <p key={index} className="rounded bg-surface-container-low px-3 py-2">___ {index + 1}. {optionText(item)}</p>)}
+        </div>
+        <div className="space-y-1">
+          <p className="text-xs font-bold uppercase text-on-surface-variant">Column B (Definitions)</p>
+          {right.map((item: unknown, index: number) => <p key={index} className="rounded bg-surface-container-low px-3 py-2">{String.fromCharCode(65 + index)}. {optionText(item)}</p>)}
+        </div>
+      </div>
+    );
   }
   return null;
 }

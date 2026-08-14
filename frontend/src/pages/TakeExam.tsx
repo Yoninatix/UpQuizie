@@ -22,6 +22,7 @@ export default function TakeExam() {
   const [codeErr, setCodeErr] = useState("");
   const [started, setStarted] = useState(false);
   const [waiting, setWaiting] = useState(false);
+  const startInFlight = useRef(false);
 
   useEffect(() => {
     if (!id) return;
@@ -47,6 +48,8 @@ export default function TakeExam() {
   // in that case we send them straight to their results instead of retaking it.
   async function begin(entryCode = "", polling = false) {
     if (!id || (started && !polling)) return;
+    if (startInFlight.current) return;
+    startInFlight.current = true;
     if (!polling) setStarted(true);
     try {
       const a = await api.post<{ attempt_id: string; started_at?: string | null; ends_at?: string | null; waiting?: boolean }>(`/exams/${id}/attempts`, { code: entryCode });
@@ -71,6 +74,9 @@ export default function TakeExam() {
         return;
       }
       setStartError(err.message || "Could not start this exam.");
+      if (!polling) setStarted(false);
+    } finally {
+      startInFlight.current = false;
     }
   }
 
@@ -337,8 +343,8 @@ export default function TakeExam() {
   );
 }
 
-// Matching answer control. Students tap a left item, then tap the matching
-// right item; the lines are stored in the same pairs shape the grader expects.
+// Matching answer control. Students connect a Column A term to a Column B
+// definition; responses keep the grader's pairs shape.
 function MatchingInput({ left, right, pairs, onChange }: {
   left: string[];
   right: string[];
@@ -424,7 +430,7 @@ function MatchingInput({ left, right, pairs, onChange }: {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-on-surface-variant">
-          Select an item on the left, then select its matching answer on the right.
+          Select a key term in Column A, then select its matching definition in Column B.
         </p>
         <button
           type="button"
@@ -437,7 +443,7 @@ function MatchingInput({ left, right, pairs, onChange }: {
       </div>
 
       <div className="overflow-x-auto pb-2">
-        <div ref={boardRef} className="relative min-w-[700px] rounded-xl bg-surface-container-low p-4">
+        <div ref={boardRef} className="relative min-w-[760px] rounded-xl bg-surface-container-low p-4">
           <svg className="pointer-events-none absolute inset-0 z-0 h-full w-full" aria-hidden="true">
             {pairs.map(([leftIndex, rightIndex]) => {
               const from = points.left[leftIndex];
@@ -454,9 +460,9 @@ function MatchingInput({ left, right, pairs, onChange }: {
             })}
           </svg>
 
-          <div className="relative z-10 grid grid-cols-[minmax(240px,1fr)_140px_minmax(240px,1fr)] gap-3">
-            <div>
-              <h3 className="mb-3 text-center text-sm font-bold uppercase tracking-wide text-on-surface-variant">Items</h3>
+          <div className="relative z-10 grid grid-cols-[minmax(260px,1fr)_120px_minmax(320px,1fr)] gap-3">
+            <section>
+              <h3 className="mb-3 text-center text-sm font-bold uppercase tracking-wide text-on-surface-variant">Column A (Key Terms)</h3>
               <div className="space-y-2.5">
                 {left.map((item, leftIndex) => {
                   const connectedRight = chosen.get(leftIndex);
@@ -467,11 +473,11 @@ function MatchingInput({ left, right, pairs, onChange }: {
                       <button
                         type="button"
                         onClick={() => setActiveLeft(selected ? null : leftIndex)}
-                        className={`min-h-[64px] flex-1 rounded-lg border bg-white px-3.5 py-2.5 text-left shadow-sm transition-all ${
+                        className={`min-h-[58px] flex-1 rounded-lg border bg-white px-3.5 py-2.5 text-left shadow-sm transition-all ${
                           selected ? "border-secondary ring-2 ring-secondary/30" : connectedRight != null ? "border-secondary/70" : "border-outline-variant hover:border-secondary"
                         }`}
                       >
-                        <span className="text-xs font-bold text-on-surface-variant">#{leftIndex + 1}</span>
+                        <span className="text-xs font-bold text-on-surface-variant">___ {leftIndex + 1}</span>
                         <span className="mt-1 block font-semibold text-on-surface">{item}</span>
                         {connectedRight != null && (
                           <span className="mt-1 block text-xs font-semibold text-secondary">
@@ -502,14 +508,14 @@ function MatchingInput({ left, right, pairs, onChange }: {
                   );
                 })}
               </div>
-            </div>
+            </section>
 
             <div className="flex items-center justify-center px-2 text-center text-xs font-semibold text-on-surface-variant">
-              {activeLeft == null ? "Tap a left dot to begin" : `Now choose the answer for #${activeLeft + 1}`}
+              {activeLeft == null ? "Tap a term" : `Choose definition for #${activeLeft + 1}`}
             </div>
 
-            <div>
-              <h3 className="mb-3 text-center text-sm font-bold uppercase tracking-wide text-on-surface-variant">Answers</h3>
+            <section>
+              <h3 className="mb-3 text-center text-sm font-bold uppercase tracking-wide text-on-surface-variant">Column B (Definitions)</h3>
               <div className="space-y-2.5">
                 {right.map((item, rightIndex) => {
                   const connectedLeft = usedRight.get(rightIndex);
@@ -523,7 +529,7 @@ function MatchingInput({ left, right, pairs, onChange }: {
                           if (activeLeft != null) connect(activeLeft, rightIndex);
                           else if (connectedLeft != null) setActiveLeft(connectedLeft);
                         }}
-                        aria-label={`Connection point for answer ${String.fromCharCode(65 + rightIndex)}`}
+                        aria-label={`Connection point for definition ${String.fromCharCode(65 + rightIndex)}`}
                         className={`h-6 w-6 shrink-0 rounded-full border-[3px] bg-white transition-transform ${activeLeft != null ? "hover:scale-110" : ""}`}
                         style={{ borderColor: selectedColor }}
                       />
@@ -533,7 +539,7 @@ function MatchingInput({ left, right, pairs, onChange }: {
                           if (activeLeft != null) connect(activeLeft, rightIndex);
                           else if (connectedLeft != null) setActiveLeft(connectedLeft);
                         }}
-                        className={`min-h-[64px] flex-1 rounded-lg border bg-white px-3.5 py-2.5 text-left shadow-sm transition-all ${
+                        className={`min-h-[58px] flex-1 rounded-lg border bg-white px-3.5 py-2.5 text-left shadow-sm transition-all ${
                           connectedLeft != null ? "border-secondary/70" : activeLeft != null ? "border-outline-variant hover:border-secondary" : "border-outline-variant"
                         }`}
                       >
@@ -544,7 +550,7 @@ function MatchingInput({ left, right, pairs, onChange }: {
                   );
                 })}
               </div>
-            </div>
+            </section>
           </div>
         </div>
       </div>

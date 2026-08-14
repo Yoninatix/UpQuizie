@@ -799,6 +799,23 @@ func startAttempt(c *gin.Context) {
 		`INSERT INTO student_exam_attempts (exam_id,student_id,started_at)
 		 VALUES ($1,$2,CASE WHEN $3 THEN now() ELSE NULL END) RETURNING id, started_at`,
 		examID, userID, startNow).Scan(&id, &startedAt); err != nil {
+		// Browser retries or React's dev-time effect replay can race the first
+		// insert. If the attempt now exists, treat this request like a resume.
+		if retryErr := db.QueryRow(ctx,
+			`SELECT id, status, started_at FROM student_exam_attempts WHERE exam_id=$1 AND student_id=$2`,
+			examID, userID).Scan(&id, &status, &startedAt); retryErr == nil {
+			if status != "in_progress" {
+				c.JSON(409, gin.H{"error": "You have already taken this exam.", "attempt_id": id})
+				return
+			}
+			waiting := examMode == "live" && liveState != "started" && startedAt == nil
+			if examMode == "live" && liveState == "started" && startedAt == nil {
+				now := time.Now()
+				db.QueryRow(ctx, `UPDATE student_exam_attempts SET started_at=$1 WHERE id=$2 RETURNING started_at`, now, id).Scan(&startedAt)
+			}
+			c.JSON(200, gin.H{"attempt_id": id, "started_at": startedAt, "waiting": waiting, "ends_at": liveEndsAt})
+			return
+		}
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}

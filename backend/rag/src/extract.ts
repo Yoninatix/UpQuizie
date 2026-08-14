@@ -4,12 +4,15 @@ import pdf from "pdf-parse/lib/pdf-parse.js";
 import mammoth from "mammoth";
 import JSZip from "jszip";
 
-// Strip XML/HTML tags and collapse whitespace.
+// Strip XML/HTML tags while preserving block-ish boundaries for heading detection.
 function stripTags(xml: string): string {
   return xml
+    .replace(/<\/(?:h[1-6]|p|div|section|article|li|tr|br|a:p|w:p|a:r|a:t|w:r|w:t)>/gi, "\n")
     .replace(/<[^>]+>/g, " ")
     .replace(/&[a-zA-Z]+;/g, " ")
-    .replace(/\s+/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -62,7 +65,7 @@ export async function extractText(filePath: string): Promise<string> {
     case ".png":
     case ".jpg":
     case ".jpeg":
-      return ocr(buf);
+      return ocr(filePath);
     case ".txt":
     case ".md":
     case ".csv":
@@ -72,13 +75,21 @@ export async function extractText(filePath: string): Promise<string> {
 }
 
 // OCR using Tesseract.js. Imported lazily so the worker only spins up when needed.
-async function ocr(buf: Buffer): Promise<string> {
+async function ocr(input: Buffer | string): Promise<string> {
   try {
-    const { recognize } = await import("tesseract.js");
-    const { data } = await recognize(buf, "eng");
-    return (data.text || "").trim();
+    const tesseract = await import("tesseract.js");
+    const recognize = tesseract.recognize ?? tesseract.default?.recognize;
+    if (typeof recognize !== "function") {
+      throw new Error("Tesseract OCR is unavailable");
+    }
+    const { data } = await recognize(input, "eng");
+    const text = (data.text || "").trim();
+    if (!text) {
+      throw new Error("OCR found no readable English text");
+    }
+    return text;
   } catch (e) {
     console.warn("OCR failed:", e);
-    return "";
+    throw e;
   }
 }
