@@ -8,7 +8,7 @@ import (
 )
 
 // heartbeat records live progress and tab-focus for an in-progress attempt.
-// Called periodically by the student's exam page so educators can monitor
+// Called periodically by the student's exam page so teachers can monitor
 // sessions in real time. Only the owning student may update, and completed
 // attempts are never touched.
 func heartbeat(c *gin.Context) {
@@ -38,7 +38,7 @@ func heartbeat(c *gin.Context) {
 }
 
 // examMonitor returns a live roster of every enrolled student for an exam,
-// left-joined with their attempt so educators see who has not started, who is
+// left-joined with their attempt so teachers see who has not started, who is
 // mid-exam (with progress + presence), and who has submitted.
 func examMonitor(c *gin.Context) {
 	examID := c.Param("id")

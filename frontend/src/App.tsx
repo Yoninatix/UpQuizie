@@ -22,18 +22,23 @@ import QuestionBank from "./pages/QuestionBank";
 
 function Protected({ children }: { children: JSX.Element }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="p-10 text-on-surface-variant">Loading…</div>;
+  if (loading)
+    return <div className="p-10 text-on-surface-variant">Loading…</div>;
   if (!user) return <Navigate to="/login" replace />;
   return children;
 }
 
 function Home() {
   const { user, loading } = useAuth();
-  if (loading) return <div className="p-10 text-on-surface-variant">Loading…</div>;
+  if (loading)
+    return <div className="p-10 text-on-surface-variant">Loading…</div>;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === "admin") return <Navigate to="/admin/users" replace />;
   if (user.role === "student") return <Navigate to="/student" replace />;
-  return <Navigate to="/subjects" replace />;
+  // Teachers start at their subject list; question generation is reached from
+  // inside a subject rather than being the landing page.
+  if (user.role === "teacher") return <Navigate to="/subjects" replace />;
+  return <Navigate to="/login" replace />;
 }
 
 export default function App() {
@@ -42,25 +47,154 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/" element={<Home />} />
-      <Route path="/student" element={<Protected><StudentDashboard /></Protected>} />
-      <Route path="/educator" element={<Protected><TeacherDashboard /></Protected>} />
-      <Route path="/materials" element={<Protected><Materials /></Protected>} />
-      <Route path="/subjects/:id/materials" element={<Protected><Materials /></Protected>} />
-      <Route path="/subjects/:id/enroll" element={<Protected><Enrollment /></Protected>} />
-      <Route path="/review" element={<Navigate to="/educator#review-questions" replace />} />
-      <Route path="/analytics" element={<Protected><Analytics /></Protected>} />
-      <Route path="/performance" element={<Protected><StudentPerformance /></Protected>} />
-      <Route path="/calendar" element={<Protected><StudentCalendar /></Protected>} />
-      <Route path="/settings" element={<Protected><Settings /></Protected>} />
-      <Route path="/sessions" element={<Protected><ExamSessions /></Protected>} />
-      <Route path="/question-bank" element={<Protected><QuestionBank /></Protected>} />
-      <Route path="/subjects" element={<Protected><Subjects /></Protected>} />
-      <Route path="/subjects/:id" element={<Protected><SubjectDetail /></Protected>} />
-      <Route path="/exams" element={<Protected><ExamsList /></Protected>} />
-      <Route path="/exams/:id/take" element={<Protected><TakeExam /></Protected>} />
-      <Route path="/exams/:id/monitor" element={<Protected><ExamMonitor /></Protected>} />
-      <Route path="/attempts/:id/results" element={<Protected><Results /></Protected>} />
-      <Route path="/admin/users" element={<Protected><AdminUsers /></Protected>} />
+      <Route
+        path="/student"
+        element={
+          <Protected>
+            <StudentDashboard />
+          </Protected>
+        }
+      />
+      <Route
+        path="/teacher"
+        element={
+          <Protected>
+            <TeacherDashboard />
+          </Protected>
+        }
+      />
+      <Route
+        path="/materials"
+        element={
+          <Protected>
+            <Materials />
+          </Protected>
+        }
+      />
+      <Route
+        path="/subjects/:id/materials"
+        element={
+          <Protected>
+            <Materials />
+          </Protected>
+        }
+      />
+      <Route
+        path="/subjects/:id/enroll"
+        element={
+          <Protected>
+            <Enrollment />
+          </Protected>
+        }
+      />
+      <Route
+        path="/review"
+        element={<Navigate to="/teacher#review-questions" replace />}
+      />
+      <Route
+        path="/analytics"
+        element={
+          <Protected>
+            <Analytics />
+          </Protected>
+        }
+      />
+      <Route
+        path="/performance"
+        element={
+          <Protected>
+            <StudentPerformance />
+          </Protected>
+        }
+      />
+      <Route
+        path="/calendar"
+        element={
+          <Protected>
+            <StudentCalendar />
+          </Protected>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <Protected>
+            <Settings />
+          </Protected>
+        }
+      />
+      <Route
+        path="/sessions"
+        element={
+          <Protected>
+            <ExamSessions />
+          </Protected>
+        }
+      />
+      <Route
+        path="/question-bank"
+        element={
+          <Protected>
+            <QuestionBank />
+          </Protected>
+        }
+      />
+      <Route
+        path="/subjects"
+        element={
+          <Protected>
+            <Subjects />
+          </Protected>
+        }
+      />
+      <Route
+        path="/subjects/:id"
+        element={
+          <Protected>
+            <SubjectDetail />
+          </Protected>
+        }
+      />
+      <Route
+        path="/exams"
+        element={
+          <Protected>
+            <ExamsList />
+          </Protected>
+        }
+      />
+      <Route
+        path="/exams/:id/take"
+        element={
+          <Protected>
+            <TakeExam />
+          </Protected>
+        }
+      />
+      <Route
+        path="/exams/:id/monitor"
+        element={
+          <Protected>
+            <ExamMonitor />
+          </Protected>
+        }
+      />
+      <Route
+        path="/attempts/:id/results"
+        element={
+          <Protected>
+            <Results />
+          </Protected>
+        }
+      />
+      <Route
+        path="/admin/users"
+        element={
+          <Protected>
+            <AdminUsers />
+          </Protected>
+        }
+      />
       <Route path="*" element={<Home />} />
     </Routes>
   );

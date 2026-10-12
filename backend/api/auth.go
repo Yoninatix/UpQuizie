@@ -53,10 +53,13 @@ func handleRegister(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	role := req.Role
-	if role != "student" && role != "educator" && role != "admin" {
-		role = "student"
+	role := strings.ToLower(strings.TrimSpace(req.Role))
+
+	if role != "student" && role != "teacher" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "role must be student or teacher"})
+		return
 	}
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "hash failed"})
@@ -71,6 +74,12 @@ func handleRegister(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
 		return
 	}
+	token, err := issueToken(id, role)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not create session"})
+		return
+	}
+	setAuthCookie(c, token)
 	c.JSON(http.StatusCreated, gin.H{
 		"user": gin.H{"id": id, "email": req.Email, "full_name": req.FullName, "role": role},
 	})
@@ -92,9 +101,10 @@ func createUserAdmin(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	role := req.Role
-	if role != "student" && role != "educator" && role != "admin" {
-		role = "student"
+	role := strings.ToLower(strings.TrimSpace(req.Role))
+	if role != "student" && role != "teacher" && role != "admin" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "role must be student, teacher, or admin"})
+		return
 	}
 	status := req.Status
 	if status != "active" && status != "inactive" && status != "pending" {
@@ -204,7 +214,7 @@ func requireRole(roles ...string) gin.HandlerFunc {
 
 // requireSubjectAccess prevents one account from reaching another teacher's
 // subject by manually changing the subject ID in the URL. Administrators can
-// access every subject, educators only subjects they own, and students only
+// access every subject, teachers only subjects they own, and students only
 // subjects in which they are enrolled.
 func requireSubjectAccess() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -218,7 +228,7 @@ func requireSubjectAccess() gin.HandlerFunc {
 		var allowed bool
 		var err error
 		switch role {
-		case "educator":
+		case "teacher":
 			err = db.QueryRow(context.Background(),
 				`SELECT EXISTS(SELECT 1 FROM subjects WHERE id=$1 AND educator_id=$2)`,
 				c.Param("id"), userID).Scan(&allowed)
@@ -244,7 +254,7 @@ func requireSubjectAccess() gin.HandlerFunc {
 func requireSubjectOwner() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role, _ := c.Get("role")
-		if role != "educator" && role != "admin" {
+		if role != "teacher" && role != "admin" {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 			return
 		}

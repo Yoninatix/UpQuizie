@@ -29,7 +29,7 @@ export default function Subjects() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["subjects"] }),
   });
 
-  const canManage = user?.role === "educator" || user?.role === "admin";
+  const canManage = user?.role === "teacher" || user?.role === "admin";
 
   return (
     <Layout title="Subjects">

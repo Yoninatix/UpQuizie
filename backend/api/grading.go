@@ -59,8 +59,8 @@ func listGradingSubmissions(c *gin.Context) {
 		args = append(args, sid)
 		query += fmt.Sprintf(` AND e.subject_id=$%d`, len(args))
 	}
-	// Educators only see submissions for subjects they own.
-	if role == "educator" {
+	// Teachers only see submissions for subjects they own.
+	if role == "teacher" {
 		args = append(args, userID)
 		query += fmt.Sprintf(` AND e.subject_id IN (SELECT id FROM subjects WHERE educator_id=$%d)`, len(args))
 	}

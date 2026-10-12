@@ -35,7 +35,10 @@ services:
       DATABASE_URL: "postgres://upquizie:upquizie@postgres:5432/examdb?sslmode=disable"
       JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
       RAG_SERVICE_URL: "http://rag:7000"
-      CORS_ORIGINS: "http://localhost:8080,http://localhost:5173,http://127.0.0.1:5173,http://172.23.0.1:5173,http://192.168.0.145:5173"
+      # Loopback and private-LAN origins are allowed automatically (see
+      # originAllowed in main.go), which covers every collaborator's LAN IP
+      # without pinning addresses that change with DHCP.
+      CORS_ORIGINS: "http://localhost:8080,http://localhost:5173,http://127.0.0.1:5173"
       UPLOAD_DIR: "/app/uploads"
     volumes:
       - uploads:/app/uploads

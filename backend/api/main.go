@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log"
+	"net"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -52,7 +54,7 @@ func main() {
 
 	origins := strings.Split(getenv("CORS_ORIGINS", "http://localhost:8080,http://localhost:5173"), ",")
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     origins,
+		AllowOriginFunc:  func(origin string) bool { return originAllowed(origin, origins) },
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		AllowCredentials: true,
@@ -78,7 +80,7 @@ func main() {
 
 		// Subjects & enrollment
 		auth.GET("/subjects", listSubjects)
-		auth.POST("/subjects", requireRole("educator", "admin"), createSubject)
+		auth.POST("/subjects", requireRole("teacher", "admin"), createSubject)
 		auth.PATCH("/subjects/:id", requireSubjectOwner(), updateSubject)
 		auth.DELETE("/subjects/:id", requireSubjectOwner(), deleteSubject)
 		auth.GET("/subjects/:id/students", requireSubjectOwner(), listStudents)
@@ -94,37 +96,37 @@ func main() {
 
 		// RAG question generation (async) + review/approval
 		auth.POST("/subjects/:id/generate", requireSubjectOwner(), generateQuestions)
-		auth.GET("/generation/:jobId", requireRole("educator", "admin"), getGenerationStatus)
+		auth.GET("/generation/:jobId", requireRole("teacher", "admin"), getGenerationStatus)
 		auth.GET("/subjects/:id/generated", requireSubjectOwner(), listGenerated)
 		auth.GET("/subjects/:id/question-bank", requireSubjectOwner(), questionBank)
 		auth.DELETE("/subjects/:id/generated", requireSubjectOwner(), deleteAllGenerated)
-		auth.PATCH("/generated/:gid", requireRole("educator", "admin"), updateGenerated)
-		auth.POST("/generated/:gid/image", requireRole("educator", "admin"), uploadGeneratedQuestionImage)
-		auth.DELETE("/generated/:gid/image", requireRole("educator", "admin"), removeGeneratedQuestionImage)
+		auth.PATCH("/generated/:gid", requireRole("teacher", "admin"), updateGenerated)
+		auth.POST("/generated/:gid/image", requireRole("teacher", "admin"), uploadGeneratedQuestionImage)
+		auth.DELETE("/generated/:gid/image", requireRole("teacher", "admin"), removeGeneratedQuestionImage)
 
 		// Exams (built from approved questions)
 		auth.GET("/exams", listExams)
-		auth.POST("/exams", requireRole("educator", "admin"), createExam)
+		auth.POST("/exams", requireRole("teacher", "admin"), createExam)
 		auth.GET("/exams/:id", getExam)
-		auth.PATCH("/exams/:id", requireRole("educator", "admin"), updateExam)
+		auth.PATCH("/exams/:id", requireRole("teacher", "admin"), updateExam)
 		auth.GET("/exams/:id/questions", listExamQuestions)
-		auth.PATCH("/exam-questions/:qid", requireRole("educator", "admin"), updateExamQuestion)
-		auth.POST("/exams/:id/publish", requireRole("educator", "admin"), publishExam)
-		auth.POST("/exams/:id/activation", requireRole("educator", "admin"), setExamActivation)
-		auth.DELETE("/exams/:id", requireRole("educator", "admin"), deleteExam)
+		auth.PATCH("/exam-questions/:qid", requireRole("teacher", "admin"), updateExamQuestion)
+		auth.POST("/exams/:id/publish", requireRole("teacher", "admin"), publishExam)
+		auth.POST("/exams/:id/activation", requireRole("teacher", "admin"), setExamActivation)
+		auth.DELETE("/exams/:id", requireRole("teacher", "admin"), deleteExam)
 
 		// Attempts & scoring
 		auth.POST("/exams/:id/attempts", startAttempt)
 		auth.POST("/attempts/:aid/submit", submitAttempt)
 		auth.POST("/attempts/:aid/heartbeat", heartbeat)
 		auth.GET("/attempts/:aid", getAttempt)
-		auth.GET("/grading/submissions", requireRole("educator", "admin"), listGradingSubmissions)
-		auth.GET("/attempts/:aid/review", requireRole("educator", "admin"), reviewAttempt)
-		auth.PATCH("/attempts/:aid/answers/:answerId", requireRole("educator", "admin"), updateAnswerScore)
+		auth.GET("/grading/submissions", requireRole("teacher", "admin"), listGradingSubmissions)
+		auth.GET("/attempts/:aid/review", requireRole("teacher", "admin"), reviewAttempt)
+		auth.PATCH("/attempts/:aid/answers/:answerId", requireRole("teacher", "admin"), updateAnswerScore)
 
-		// Live exam-session monitoring (educator)
-		auth.GET("/exams/:id/monitor", requireRole("educator", "admin"), examMonitor)
-		auth.POST("/exams/:id/start", requireRole("educator", "admin"), startLiveExam)
+		// Live exam-session monitoring (teacher)
+		auth.GET("/exams/:id/monitor", requireRole("teacher", "admin"), examMonitor)
+		auth.POST("/exams/:id/start", requireRole("teacher", "admin"), startLiveExam)
 
 		// Student self-service
 		auth.GET("/me/performance", studentPerformance)
@@ -155,10 +157,43 @@ func getenv(k, def string) string {
 	return def
 }
 
+// originAllowed accepts anything explicitly listed in CORS_ORIGINS, plus any
+// loopback or private-network address on any port. The host's LAN IP is
+// DHCP-assigned and changes between sessions, so pinning it in configuration
+// silently breaks sharing; matching the private ranges keeps LAN demos working
+// without widening access to the public internet.
+func originAllowed(origin string, allowList []string) bool {
+	for _, allowed := range allowList {
+		if strings.EqualFold(strings.TrimSpace(allowed), origin) {
+			return true
+		}
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
+}
+
 func ensureSchema() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	statements := []string{
+		`DO $$
+		BEGIN
+			IF EXISTS (
+				SELECT 1 FROM pg_enum e
+				JOIN pg_type t ON t.oid = e.enumtypid
+				WHERE t.typname = 'user_role' AND e.enumlabel = 'educator'
+			) THEN
+				ALTER TYPE user_role RENAME VALUE 'educator' TO 'teacher';
+			END IF;
+		END $$`,
 		`ALTER TABLE uploaded_documents ADD COLUMN IF NOT EXISTS module_label TEXT NOT NULL DEFAULT 'Module 1'`,
 		`CREATE INDEX IF NOT EXISTS idx_documents_module ON uploaded_documents(subject_id, module_label)`,
 		`ALTER TABLE exams ADD COLUMN IF NOT EXISTS starts_at TIMESTAMPTZ`,

@@ -34,7 +34,10 @@ export function useAuth() {
   }, [ready, setUser, setReady]);
 
   async function login(email: string, password: string) {
-    const res = await api.post<{ user: User }>("/auth/login", { email, password });
+    const res = await api.post<{ user: User }>("/auth/login", {
+      email,
+      password,
+    });
     queryClient.clear();
     setUser(res.user);
     setReady(true);
@@ -43,6 +46,9 @@ export function useAuth() {
 
   async function register(data: RegisterData) {
     const res = await api.post<{ user: User }>("/auth/register", data);
+    queryClient.clear();
+    setUser(res.user);
+    setReady(true);
     return res.user;
   }
 
