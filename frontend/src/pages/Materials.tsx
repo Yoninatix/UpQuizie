@@ -212,7 +212,7 @@ function SubjectMaterials({ subjectId, subjects }: { subjectId: string; subjects
             multiple
             disabled={upload.isPending}
             className="hidden"
-            accept=".pdf,.docx,.pptx,.xlsx,.odt,.html,.htm,.rtf,.txt,.md,.csv,.png,.jpg,.jpeg"
+            accept=".pdf,.doc,.docx,.ppt,.pptx,.xlsx,.odt,.html,.htm,.rtf,.txt,.md,.csv,.png,.jpg,.jpeg"
             onChange={(e) => {
               const files = Array.from(e.target.files || []);
               if (files.length > 0) upload.mutate({ files, moduleLabel: uploadModule });

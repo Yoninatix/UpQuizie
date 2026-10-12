@@ -54,6 +54,7 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [selectedBank, setSelectedBank] = useState<Record<string, boolean>>({});
+  const [openBankGroups, setOpenBankGroups] = useState<Record<string, boolean>>({});
   const [examTitle, setExamTitle] = useState("");
   const [examMode, setExamMode] = useState<"take_home" | "live">("take_home");
   const [durationMin, setDurationMin] = useState(60);
@@ -526,55 +527,67 @@ export default function ReviewQuestions({ embedded = false, subjectId: controlle
         ) : (
           <div className="divide-y divide-outline-variant">
             {bankGroups.map((group) => {
+              const groupKey = group.exam_id || group.title;
               const groupIds = group.questions.map((question) => question.id);
               const selectedCount = groupIds.filter((id) => selectedBank[id]).length;
               const allSelected = selectedCount === groupIds.length;
+              const isOpen = openBankGroups[groupKey] ?? false;
               return (
-                <div key={group.exam_id || group.title} className="p-5">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-                    <div>
-                      <h4 className="font-headline text-base font-bold text-primary">{group.title}</h4>
-                      <p className="text-xs text-on-surface-variant">
+                <div key={groupKey} className="p-5">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      aria-expanded={isOpen}
+                      onClick={() => setOpenBankGroups((current) => ({ ...current, [groupKey]: !isOpen }))}
+                      className="min-w-0 flex-1 rounded-lg px-3 py-2 text-left hover:bg-surface-container-low transition-colors"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon name={isOpen ? "expand_less" : "expand_more"} className="text-on-surface-variant" />
+                        <h4 className="min-w-0 truncate font-headline text-base font-bold text-primary">{group.title}</h4>
+                      </div>
+                      <p className="ml-8 text-xs text-on-surface-variant">
                         {group.questions.length} question{group.questions.length === 1 ? "" : "s"} - {selectedCount} selected
                       </p>
-                    </div>
+                    </button>
                     <button
                       onClick={() => toggleBankGroup(group)}
                       className={`px-4 py-2 rounded-lg text-sm font-semibold border ${allSelected ? "border-outline-variant text-on-surface-variant" : "border-secondary text-secondary"}`}>
                       {allSelected ? "Deselect quiz" : "Select quiz"}
                     </button>
                   </div>
-                  <div className="space-y-3">
-                    {group.questions.map((question, index) => {
-                      const isBankSelected = !!selectedBank[question.id];
-                      return (
-                        <label key={question.id}
-                          className={`flex items-start gap-3 border rounded-lg p-4 cursor-pointer ${isBankSelected ? "border-secondary bg-secondary-container/20" : "border-outline-variant bg-white"}`}>
-                          <input
-                            type="checkbox"
-                            checked={isBankSelected}
-                            onChange={(event) => setSelectedBank((current) => ({ ...current, [question.id]: event.target.checked }))}
-                            className="mt-1"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2 mb-1">
-                              <span className="text-xs font-bold text-on-surface-variant">Q{index + 1}</span>
-                              <span className="px-2 py-0.5 rounded-full bg-surface-container-high text-xs font-semibold text-on-surface-variant">{typeLabel[question.type] || asText(question.type)}</span>
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${diffStyle[question.difficulty] || "bg-surface-container-high"}`}>{asText(question.difficulty)}</span>
-                              <span className="px-2 py-0.5 rounded-full bg-surface-container-high text-xs font-semibold text-on-surface-variant">{question.points} pts</span>
-                            </div>
-                            <QuestionPrompt
-                              prompt={question.prompt}
-                              imageUrl={question.image_url}
-                              className="space-y-2 text-sm font-semibold text-on-surface leading-6"
-                              imageWrapperClassName="mt-3 rounded-lg border border-outline-variant bg-surface-container-low p-2"
+                  {isOpen && (
+                    <div className="mt-4 space-y-3">
+                      {group.questions.map((question, index) => {
+                        const isBankSelected = !!selectedBank[question.id];
+                        return (
+                          <label key={question.id}
+                            className={`flex items-start gap-3 border rounded-lg p-4 cursor-pointer ${isBankSelected ? "border-secondary bg-secondary-container/20" : "border-outline-variant bg-white"}`}>
+                            <input
+                              type="checkbox"
+                              checked={isBankSelected}
+                              onChange={(event) => setSelectedBank((current) => ({ ...current, [question.id]: event.target.checked }))}
+                              className="mt-1"
                             />
-                            <PreviewOptions question={question} options={question.options} answer={question.answer} compact />
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <span className="text-xs font-bold text-on-surface-variant">Q{index + 1}</span>
+                                <span className="px-2 py-0.5 rounded-full bg-surface-container-high text-xs font-semibold text-on-surface-variant">{typeLabel[question.type] || asText(question.type)}</span>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${diffStyle[question.difficulty] || "bg-surface-container-high"}`}>{asText(question.difficulty)}</span>
+                                <span className="px-2 py-0.5 rounded-full bg-surface-container-high text-xs font-semibold text-on-surface-variant">{question.points} pts</span>
+                              </div>
+                              <QuestionPrompt
+                                prompt={question.prompt}
+                                imageUrl={question.image_url}
+                                className="space-y-2 text-sm font-semibold text-on-surface leading-6"
+                                imageWrapperClassName="mt-3 rounded-lg border border-outline-variant bg-surface-container-low p-2"
+                              />
+                              <PreviewOptions question={question} options={question.options} answer={question.answer} compact />
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}

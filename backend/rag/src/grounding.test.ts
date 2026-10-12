@@ -37,6 +37,19 @@ test("accepts naturally phrased MCQ options grounded in document terminology", (
   assert.equal(result.valid, true);
 });
 
+test("rejects MCQs with multiple correct answers", () => {
+  const result = validateGroundedQuestion({
+    type: "mcq",
+    prompt: "Which structure is found in plant cells?",
+    options: ["chloroplast", "mitochondria", "ribosome", "cell wall"],
+    answer: { correct_indices: [0, 3] },
+    source_index: 1,
+    source_quote: "Photosynthesis occurs in the chloroplast.",
+  }, "mcq", sources);
+  assert.equal(result.valid, false);
+  assert.match(result.reason || "", /correct_index/);
+});
+
 test("rejects non-English MCQ prompts", () => {
   const result = validateGroundedQuestion({
     type: "mcq", prompt: "¿Cuál es la respuesta correcta?",
@@ -180,6 +193,20 @@ test("rejects matching pairs that are not one-to-one", () => {
   }, "matching", sources);
   assert.equal(result.valid, false);
   assert.match(result.reason || "", /one-to-one/);
+});
+
+test("rejects matching questions with extra definitions", () => {
+  const result = validateGroundedQuestion({
+    type: "matching", prompt: "Directions: Match the key terms in Column A with their correct definitions in Column B.",
+    options: {
+      left: ["Photosynthesis", "Stomata"],
+      right: ["regulate gas exchange", "occurs in the chloroplast", "release energy from food"],
+    },
+    answer: { pairs: [[0, 1], [1, 0]] }, source_index: 1,
+    source_quote: "Photosynthesis occurs in the chloroplast.",
+  }, "matching", sources);
+  assert.equal(result.valid, false);
+  assert.match(result.reason || "", /matching items/);
 });
 
 test("rejects a true/false answer that is not boolean", () => {

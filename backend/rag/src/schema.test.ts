@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { jsonSchemaFor } from "./schema.js";
 
-const TYPES = ["true_false", "fill_blank", "matching", "essay"];
+const TYPES = ["mcq", "true_false", "fill_blank", "matching", "essay"];
 
 function itemSchema(type: string, want = 3): any {
   const root = jsonSchemaFor(type, "easy", want) as any;
@@ -43,6 +43,16 @@ test("true_false requires a boolean answer", () => {
   assert.deepEqual(answer.required, ["correct"]);
 });
 
+test("mcq requires exactly one correct index", () => {
+  const item = itemSchema("mcq");
+  assert.ok(item.required.includes("options"), "mcq must require options");
+  assert.equal(item.properties.options.minItems, 4);
+  assert.equal(item.properties.options.maxItems, 4);
+  const answer = item.properties.answer;
+  assert.deepEqual(answer.required, ["correct_index"]);
+  assert.ok(!("correct_indices" in answer.properties), "mcq must not allow multiple correct answers");
+});
+
 test("fill_blank requires at least one accepted answer string", () => {
   const accepted = itemSchema("fill_blank").properties.answer.properties.accepted;
   assert.equal(accepted.type, "array");
@@ -56,6 +66,8 @@ test("matching requires left/right lists and two-integer pairs", () => {
   const options = item.properties.options;
   assert.equal(options.properties.left.minItems, 2);
   assert.equal(options.properties.right.minItems, 2);
+  assert.equal(options.properties.left.maxItems, 5);
+  assert.equal(options.properties.right.maxItems, 5);
   const pairs = item.properties.answer.properties.pairs;
   assert.equal(pairs.items.minItems, 2);
   assert.equal(pairs.items.maxItems, 2);

@@ -963,8 +963,7 @@ func isBlankResponse(qtype string, responseJSON []byte) bool {
 	switch qtype {
 	case "mcq":
 		_, okIndex := raw["index"]
-		_, okIndices := raw["indices"]
-		return !okIndex && !okIndices
+		return !okIndex
 	case "true_false":
 		_, ok := raw["value"]
 		return !ok
@@ -998,29 +997,17 @@ func autoGrade(qtype string, answerJSON, responseJSON []byte) (bool, bool) {
 			CorrectIndices []int `json:"correct_indices"`
 		}
 		var resp struct {
-			Index   int   `json:"index"`
-			Indices []int `json:"indices"`
+			Index int `json:"index"`
 		}
 		json.Unmarshal(answerJSON, &ans)
 		json.Unmarshal(responseJSON, &resp)
 		if len(ans.CorrectIndices) > 0 {
-			want := map[int]bool{}
-			for _, idx := range ans.CorrectIndices {
-				want[idx] = true
+			if len(ans.CorrectIndices) != 1 {
+				// MCQ is single-answer in the student UI. Legacy multi-answer
+				// keys need teacher review or question-key correction.
+				return false, false
 			}
-			got := map[int]bool{}
-			for _, idx := range resp.Indices {
-				got[idx] = true
-			}
-			if len(want) == 0 || len(got) != len(want) {
-				return false, true
-			}
-			for idx := range want {
-				if !got[idx] {
-					return false, true
-				}
-			}
-			return true, true
+			ans.CorrectIndex = ans.CorrectIndices[0]
 		}
 		return resp.Index == ans.CorrectIndex, true
 	case "true_false":

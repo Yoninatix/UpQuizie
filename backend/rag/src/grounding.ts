@@ -53,9 +53,7 @@ export function deriveEvidenceQuote(question: GroundedQuestion, expectedType: st
   const anchors: string[] = [];
   if (expectedType === "mcq" && Array.isArray(question.options)) {
     const options = question.options as unknown[];
-    if (Array.isArray(answer?.correct_indices)) {
-      anchors.push(...answer.correct_indices.map((idx: number) => String(options[idx] ?? "")));
-    } else if (Number.isInteger(answer?.correct_index)) {
+    if (Number.isInteger(answer?.correct_index)) {
       anchors.push(String(options[answer.correct_index] ?? ""));
     }
   } else if (expectedType === "fill_blank" && Array.isArray(answer?.accepted)) {
@@ -137,20 +135,19 @@ export function validateGroundedQuestion(
         /[{}\[\]]|\b(?:querying|correct (?:answer|option)|should be selected|json|prompt)\b/i.test(option))) {
       return { valid: false, reason: "MCQ choices must not contain model commentary or serialization artifacts" };
     }
-    const correctIndices: number[] | undefined = Array.isArray(answer?.correct_indices)
-      ? answer.correct_indices
-      : undefined;
-    const hasCorrectIndex = Number.isInteger(answer?.correct_index);
-    if (!answer || (!hasCorrectIndex && !correctIndices)) {
-      return { valid: false, reason: "MCQ answer must include correct_index or correct_indices" };
+    if (Array.isArray(answer?.correct_indices)) {
+      return { valid: false, reason: "MCQ must have exactly one correct_index, not correct_indices" };
     }
-    const selectedIndices = correctIndices ?? [answer.correct_index];
+    if (!answer || !Number.isInteger(answer?.correct_index)) {
+      return { valid: false, reason: "MCQ answer must include exactly one correct_index" };
+    }
+    const selectedIndices = [answer.correct_index];
     if (!Array.isArray(selectedIndices) || selectedIndices.length === 0 ||
         selectedIndices.some((idx) => !Number.isInteger(idx) || idx < 0 || idx >= options.length)) {
-      return { valid: false, reason: "MCQ correct_indices are invalid" };
+      return { valid: false, reason: "MCQ correct_index is invalid" };
     }
     if (new Set(selectedIndices).size !== selectedIndices.length) {
-      return { valid: false, reason: "MCQ correct_indices must be distinct" };
+      return { valid: false, reason: "MCQ correct_index must be distinct" };
     }
     if (selectedIndices.length >= options.length) {
       return { valid: false, reason: "MCQ must have at least one distractor" };
@@ -198,7 +195,7 @@ export function validateGroundedQuestion(
     const left = stringArray(options?.left);
     const right = stringArray(options?.right);
     const pairs = answer?.pairs;
-    if (!left || !right || !Array.isArray(pairs) || pairs.length !== left.length) {
+    if (!left || !right || left.length !== right.length || !Array.isArray(pairs) || pairs.length !== left.length) {
       return { valid: false, reason: "matching items or answer pairs are invalid" };
     }
     if ([...left, ...right].some((value) => !appearsIn(value, source.text))) {

@@ -121,13 +121,13 @@ function toQuestionArray(parsed: any): any[] {
 function schemaFor(type: string, difficulty: string): string {
   switch (type) {
     case "mcq":
-      return `Required fields: type="mcq", difficulty="${difficulty}", topic (string), prompt (string), options (array of exactly 4 distinct phrases copied from the source, ordered as A, B, C, D), answer (object with integer correct_index from 0 to 3 or array correct_indices containing one or more such values).`;
+      return `Required fields: type="mcq", difficulty="${difficulty}", topic (string), prompt (string), options (array of exactly 4 distinct phrases copied from the source, ordered as A, B, C, D), answer (object with exactly one integer correct_index from 0 to 3).`;
     case "true_false":
       return `Required fields: type="true_false", difficulty="${difficulty}", topic (string), prompt (string), options=["True","False"], answer (object with boolean correct).`;
     case "fill_blank":
       return `Required fields: type="fill_blank", difficulty="${difficulty}", topic (string), prompt (string containing _____), options=null, answer (object with accepted array of actual source phrases).`;
     case "matching":
-      return `Required fields: type="matching", difficulty="${difficulty}", topic, prompt, options (object with left key term array for Column A and right definition array for Column B copied from source), answer (object with one-to-one index pairs mapping each left term index to its correct right definition index).`;
+      return `Required fields: type="matching", difficulty="${difficulty}", topic, prompt, options (object with equal-length left key term array for Column A and right definition array for Column B copied from source), answer (object with one-to-one index pairs mapping each left term index to its correct right definition index).`;
     case "essay":
       return `Required fields: type="essay", difficulty="${difficulty}", topic, prompt, options=null, answer (object with a source-grounded rubric string).`;
     default:
@@ -403,10 +403,8 @@ function deterministicQuestion(item: DistItem, source: GroundingSource, ordinal:
     if (pairs.length < 2) return null;
     const left = pairs.map((pair) => pair.left);
     const definitions = pairs.map((pair) => pair.right).reverse();
-    const distractor = allPairs.find((pair) =>
-      !pairs.some((selected) => selected.left.toLowerCase() === pair.left.toLowerCase())
-    )?.right;
-    const right = unique(distractor ? [...definitions, distractor] : definitions);
+    const right = unique(definitions);
+    if (right.length !== left.length) return null;
     return {
       type: item.type, difficulty: item.difficulty, topic: topic || "Selected topic",
       prompt: "Directions: Match the key terms in Column A with their correct definitions in Column B. Write the letter of the correct answer on the blank space before each number. Each option in Column B may be used only once.",
@@ -508,11 +506,11 @@ Rules:
 - Test an important concept or understanding rather than a tiny incidental detail.
 - Do not copy the fact as a sentence-completion question.
 - Never refer to a document, text, passage, reading, or statement.
-- Provide exactly four concise options and one or more correct answers.
+- Provide exactly four concise options and exactly one correct answer.
         - Every option must contain meaningful answer text. Never output placeholders or labels such as "A", "option A", or "choice A" as option text.
         - Distractors must be plausible but clearly incorrect according to the fact. Avoid ambiguity, tricks, double negatives, and overly complex sentences.
-        - If the fact cannot support one or more clear correct answers, return an empty JSON array.
-        - Before responding, verify that the answer(s) are supported, the wording is natural and understandable, at least one option is correct, and the requested difficulty is satisfied.
+        - If the fact cannot support exactly one clear correct answer, return an empty JSON array.
+        - Before responding, verify that the answer is supported, the wording is natural and understandable, exactly one option is correct, and the requested difficulty is satisfied.
 
 Return one JSON object only. Do not use markdown.
 Required fields:
@@ -521,7 +519,7 @@ Required fields:
 - topic: a short topic name
 - prompt: the complete English question
 - options: an array containing four actual answer choices in A-to-D order
-- answer: an object containing correct_index (an integer from 0 to 3) or correct_indices (a non-empty array of distinct integers from 0 to 3)
+- answer: an object containing exactly one correct_index integer from 0 to 3
 
 Write the real question and real choices directly. Do not copy field descriptions into their values.
 
@@ -542,15 +540,8 @@ ${fact}`, {
                 type: "object",
                 properties: {
                   correct_index: { type: "integer", enum: [0, 1, 2, 3] },
-                  correct_indices: {
-                    type: "array", minItems: 1, uniqueItems: true,
-                    items: { type: "integer", enum: [0, 1, 2, 3] },
-                  },
                 },
-                anyOf: [
-                  { required: ["correct_index"] },
-                  { required: ["correct_indices"] },
-                ],
+                required: ["correct_index"],
               },
             },
             required: ["type", "difficulty", "topic", "prompt", "options", "answer"],
@@ -596,9 +587,9 @@ ${fact}`, {
         if (Array.isArray(question.options) && question.options.length === 4) {
           const reviewOutput = await chat(`You are an educational assessment reviewer.
 
-Use only the FACT below. Check whether one or more choices correctly answer the QUESTION.
-If one or more choices are directly supported, set valid to true and return their zero-based indexes (A=0, B=1, C=2, D=3) using correct_indices. If exactly one choice is correct, correct_index is also acceptable.
-If the question is ambiguous, unsupported, or has zero correct choices, set valid to false.
+Use only the FACT below. Check whether exactly one choice correctly answers the QUESTION.
+If exactly one choice is directly supported, set valid to true and return its zero-based index (A=0, B=1, C=2, D=3) using correct_index.
+If the question is ambiguous, unsupported, or has zero or multiple correct choices, set valid to false.
 
 FACT:
 ${fact}
@@ -613,21 +604,13 @@ ${question.options.map((option: string, index: number) => `${String.fromCharCode
               properties: {
                 valid: { type: "boolean" },
                 correct_index: { type: "integer", enum: [0, 1, 2, 3] },
-                correct_indices: {
-                  type: "array", minItems: 1,
-                  items: { type: "integer", enum: [0, 1, 2, 3] },
-                  uniqueItems: true,
-                },
               },
               required: ["valid"],
             },
             temperature: 0, topP: 0.85, topK: 30, repeatPenalty: 1.1, numPredict: 40,
           });
           const review = extractJSON(reviewOutput);
-          if (review?.valid === true && Array.isArray(review.correct_indices) && review.correct_indices.length > 0) {
-            reviewedIndex = -1;
-            question.answer = { ...(question.answer || {}), correct_indices: review.correct_indices };
-          } else if (review?.valid === true && Number.isInteger(review.correct_index)) {
+          if (review?.valid === true && Number.isInteger(review.correct_index)) {
             reviewedIndex = review.correct_index;
           } else {
             console.warn("MCQ answer reviewer rejected candidate");
@@ -638,9 +621,10 @@ ${question.options.map((option: string, index: number) => `${String.fromCharCode
           question.answer?.correct_indices ?? question.answer?.correct_option ?? question.answer?.correct_answer ??
           question.correct_index ?? question.correct_indices ?? question.correct_option ?? question.correct_answer ?? question.correctAnswer ?? question.answer;
         let correctIndex = -1;
-        let correctIndices: number[] | undefined;
         if (Array.isArray(rawAnswer)) {
-          correctIndices = rawAnswer.filter((value): value is number => Number.isInteger(value));
+          const indexes = rawAnswer.filter((value): value is number => Number.isInteger(value));
+          if (indexes.length === 1) correctIndex = indexes[0];
+          else return { questions: [] as any[], sources };
         } else if (typeof rawAnswer === "number" && Number.isInteger(rawAnswer)) {
           correctIndex = rawAnswer;
         } else if (typeof rawAnswer === "string") {
@@ -648,11 +632,11 @@ ${question.options.map((option: string, index: number) => `${String.fromCharCode
           const letters = Array.from(value.matchAll(/([A-D])/gi)).map((m) => m[1].toUpperCase().charCodeAt(0) - 65);
           const digits = value.split(/[^0-3]+/).filter(Boolean).map((v) => Number(v));
           if (letters.length > 1) {
-            correctIndices = Array.from(new Set(letters));
+            return { questions: [] as any[], sources };
           } else if (letters.length === 1) {
             correctIndex = letters[0];
           } else if (digits.length > 1) {
-            correctIndices = Array.from(new Set(digits.filter((n) => Number.isInteger(n))));
+            return { questions: [] as any[], sources };
           } else if (digits.length === 1) {
             correctIndex = digits[0];
           } else if (Array.isArray(question.options)) {
@@ -660,11 +644,7 @@ ${question.options.map((option: string, index: number) => `${String.fromCharCode
               String(option).trim().toLowerCase() === value.toLowerCase());
           }
         }
-        if (correctIndices && correctIndices.length > 0) {
-          question.answer = { correct_indices: correctIndices };
-        } else {
-          question.answer = { correct_index: correctIndex };
-        }
+        question.answer = { correct_index: correctIndex };
         return { questions: [question], sources };
       } catch (e) {
         console.error(`three-stage MCQ generation failed (${item.difficulty})`, e);
@@ -708,7 +688,8 @@ Rules:
 - For matching, use strict RAG matching format: Column A contains numbered key terms, and Column B contains lettered definitions.
 - For matching, store Column A terms in options.left and Column B definitions in options.right. Provide answer.pairs as [left_term_index, right_definition_index].
 - For matching, create exactly 5 Column A terms only when the supplied excerpts explicitly support 5 complete term-definition pairs. If fewer than 5 clear pairs are supported, return only the supported number. Never invent missing pairs.
-- For matching, scramble Column B so definitions do not line up with the correct Column A terms. Column B may include one extra source-supported distractor definition only when it is explicitly stated in the source.
+- For matching, Column B must contain exactly the same number of definitions as Column A contains terms. Do not include extra distractor definitions.
+- For matching, scramble Column B so definitions do not line up with the correct Column A terms.
 - For matching, a Column B definition must never contain or name its matched Column A term; otherwise the answer is given away.
 - For fill-blank, every accepted answer must appear verbatim in source_quote.
 - If the excerpts cannot support a valid question, return fewer objects. Do not invent content or placeholders.

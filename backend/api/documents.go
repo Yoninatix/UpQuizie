@@ -33,6 +33,10 @@ func uploadDocument(c *gin.Context) {
 
 	docID := uuid.NewString()
 	ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
+	if !supportedDocumentExt(ext) {
+		c.JSON(400, gin.H{"error": "unsupported file type. Upload PDF, DOC, DOCX, PPT, PPTX, XLSX, ODT, HTML, RTF, TXT, MD, CSV, PNG, JPG, or JPEG."})
+		return
+	}
 	storedName := fmt.Sprintf("%s%s", docID, ext)
 	storedPath := filepath.Join(uploadDir, storedName)
 
@@ -85,6 +89,15 @@ func uploadDocument(c *gin.Context) {
 	}()
 
 	c.JSON(201, gin.H{"id": docID, "status": "processing"})
+}
+
+func supportedDocumentExt(ext string) bool {
+	allowed := map[string]bool{
+		".pdf": true, ".doc": true, ".docx": true, ".ppt": true, ".pptx": true,
+		".xlsx": true, ".odt": true, ".html": true, ".htm": true, ".rtf": true,
+		".txt": true, ".md": true, ".csv": true, ".png": true, ".jpg": true, ".jpeg": true,
+	}
+	return allowed[strings.ToLower(ext)]
 }
 
 func listDocuments(c *gin.Context) {
@@ -202,7 +215,7 @@ func generationOptions(c *gin.Context) {
 	camelCase := regexp.MustCompile(`([a-z])([A-Z])`)
 	nonTopicChars := regexp.MustCompile(`[^a-z0-9]+`)
 	numericTopicPart := regexp.MustCompile(`^[0-9]+$`)
-	genericTopicPatterns := regexp.MustCompile(`(?i)^(?:introduction|overview|summary|conclusion|lesson|chapter|section|unit|part|objective|objectives|goal|goals|review|example|exercise|problem|notes|background|topic|content|material|materials)$`)
+	genericTopicPatterns := regexp.MustCompile(`(?i)^(?:introduction|overview|summary|conclusion|lesson|chapter|section|unit|part|slide|objective|objectives|goal|goals|review|example|exercise|problem|notes|background|topic|content|material|materials)$`)
 	chapterPrefix := regexp.MustCompile(`(?i)^(?:chapter|lesson|module|unit|section)\s+[0-9ivxlcdm]+(?:\s*[:.)-]\s*|\s+)`)
 	numberedPrefix := regexp.MustCompile(`^[0-9]+(?:\.[0-9]+)*[.)-]?\s+`)
 	markdownHeading := regexp.MustCompile(`^(?:#{1,6})\s+(.+)$`)
@@ -229,7 +242,7 @@ func generationOptions(c *gin.Context) {
 		key = strings.ReplaceAll(key, "right most", "rightmost")
 		keyParts := []string{}
 		for _, part := range strings.Fields(key) {
-			if part == "given" || part == "solution" || part == "example" || part == "page" ||
+			if part == "given" || part == "solution" || part == "example" || part == "page" || part == "slide" ||
 				part == "modified" || numericTopicPart.MatchString(part) {
 				continue
 			}

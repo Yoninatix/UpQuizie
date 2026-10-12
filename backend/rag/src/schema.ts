@@ -18,6 +18,19 @@ export function jsonSchemaFor(type: string, difficulty: string, want: number): R
   };
   let specific: Record<string, unknown>;
   switch (type) {
+    case "mcq":
+      specific = {
+        options: {
+          type: "array", minItems: 4, maxItems: 4,
+          items: { type: "string", minLength: 2 },
+        },
+        answer: {
+          type: "object",
+          properties: { correct_index: { type: "integer", enum: [0, 1, 2, 3] } },
+          required: ["correct_index"],
+        },
+      };
+      break;
     case "true_false":
       specific = {
         options: { type: "array", minItems: 2, maxItems: 2, items: { type: "string" } },
@@ -45,7 +58,7 @@ export function jsonSchemaFor(type: string, difficulty: string, want: number): R
           type: "object",
           properties: {
             left: { type: "array", minItems: 2, maxItems: 5, items: { type: "string", minLength: 1 } },
-            right: { type: "array", minItems: 2, maxItems: 6, items: { type: "string", minLength: 1 } },
+            right: { type: "array", minItems: 2, maxItems: 5, items: { type: "string", minLength: 1 } },
           },
           required: ["left", "right"],
         },
@@ -74,7 +87,7 @@ export function jsonSchemaFor(type: string, difficulty: string, want: number): R
       throw new Error(`unsupported question type: ${type}`);
   }
   const required = ["type", "difficulty", "topic", "prompt", "answer"];
-  if (type === "matching") required.push("options");
+  if (type === "mcq" || type === "matching") required.push("options");
   // toQuestionArray already unwraps { questions: [...] }, and a named array
   // property is the shape Ollama constrains most reliably.
   return {

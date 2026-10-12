@@ -114,7 +114,7 @@ export default function TakeExam() {
   const answeredCount = questions.reduce((n, qq) => {
     const r = responses[qq.id];
     const answered =
-      r != null && (r.index != null || (Array.isArray(r.indices) && r.indices.length > 0) || r.value != null || (typeof r.text === "string" && r.text.trim() !== "") ||
+      r != null && (r.index != null || r.value != null || (typeof r.text === "string" && r.text.trim() !== "") ||
         (Array.isArray(r.pairs) && r.pairs.length === (qq.options?.left?.length || 0) && r.pairs.length > 0));
     return answered ? n + 1 : n;
   }, 0);
@@ -263,18 +263,10 @@ export default function TakeExam() {
             {q.type === "mcq" && Array.isArray(q.options) && (
               <div className="space-y-2.5">
                 {q.options.map((opt: any, i: number) => {
-                  const selected = Array.isArray(responses[q.id]?.indices) ? responses[q.id].indices.includes(i) : responses[q.id]?.index === i;
+                  const selected = responses[q.id]?.index === i;
                   return (
                     <label key={i} className={`flex items-center gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-all ${selected ? "border-secondary bg-secondary-container/20" : "border-outline-variant hover:bg-surface-container-low"}`}>
-                      <input type="checkbox" name={q.id} checked={selected} onChange={() => {
-                        const current = Array.isArray(responses[q.id]?.indices) ? [...responses[q.id].indices] :
-                          responses[q.id]?.index != null ? [responses[q.id].index] : [];
-                        if (current.includes(i)) {
-                          setResp(q.id, { indices: current.filter((idx) => idx !== i) });
-                        } else {
-                          setResp(q.id, { indices: [...current, i] });
-                        }
-                      }} />
+                      <input type="radio" name={q.id} checked={selected} onChange={() => setResp(q.id, { index: i })} />
                       <span>{typeof opt === "string" ? opt : JSON.stringify(opt)}</span>
                     </label>
                   );
@@ -351,14 +343,7 @@ function MatchingInput({ left, right, pairs, onChange }: {
   pairs: number[][];
   onChange: (pairs: number[][]) => void;
 }) {
-  const boardRef = useRef<HTMLDivElement>(null);
-  const leftRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const rightRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [activeLeft, setActiveLeft] = useState<number | null>(null);
-  const [points, setPoints] = useState<{
-    left: { x: number; y: number }[];
-    right: { x: number; y: number }[];
-  }>({ left: [], right: [] });
 
   const chosen = new Map(
     pairs
@@ -370,42 +355,6 @@ function MatchingInput({ left, right, pairs, onChange }: {
       .filter(([l, r]) => Number.isInteger(l) && Number.isInteger(r))
       .map(([l, r]) => [r, l]),
   );
-
-  const colors = ["#2563eb", "#16a34a", "#f59e0b", "#7c3aed", "#dc2626", "#0891b2"];
-
-  const refreshPoints = () => {
-    const board = boardRef.current;
-    if (!board) return;
-    const box = board.getBoundingClientRect();
-    const read = (node: HTMLButtonElement | null) => {
-      if (!node) return { x: 0, y: 0 };
-      const rect = node.getBoundingClientRect();
-      return {
-        x: rect.left + rect.width / 2 - box.left,
-        y: rect.top + rect.height / 2 - box.top,
-      };
-    };
-    setPoints({
-      left: left.map((_, index) => read(leftRefs.current[index])),
-      right: right.map((_, index) => read(rightRefs.current[index])),
-    });
-  };
-
-  useEffect(() => {
-    const id = requestAnimationFrame(refreshPoints);
-    const onResize = () => refreshPoints();
-    window.addEventListener("resize", onResize);
-    const observer = typeof ResizeObserver !== "undefined" && boardRef.current
-      ? new ResizeObserver(refreshPoints)
-      : null;
-    if (observer && boardRef.current) observer.observe(boardRef.current);
-    return () => {
-      cancelAnimationFrame(id);
-      window.removeEventListener("resize", onResize);
-      observer?.disconnect();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [left, right, pairs]);
 
   const connect = (leftIndex: number, rightIndex: number) => {
     const next = pairs
@@ -419,11 +368,6 @@ function MatchingInput({ left, right, pairs, onChange }: {
   const removeLeft = (leftIndex: number) => {
     onChange(pairs.filter(([l]) => l !== leftIndex));
     if (activeLeft === leftIndex) setActiveLeft(null);
-  };
-
-  const linePath = (from: { x: number; y: number }, to: { x: number; y: number }) => {
-    const gap = Math.max(90, Math.abs(to.x - from.x) * 0.42);
-    return `M ${from.x} ${from.y} C ${from.x + gap} ${from.y}, ${to.x - gap} ${to.y}, ${to.x} ${to.y}`;
   };
 
   return (
@@ -443,31 +387,14 @@ function MatchingInput({ left, right, pairs, onChange }: {
       </div>
 
       <div className="overflow-x-auto pb-2">
-        <div ref={boardRef} className="relative min-w-[760px] rounded-xl bg-surface-container-low p-4">
-          <svg className="pointer-events-none absolute inset-0 z-0 h-full w-full" aria-hidden="true">
-            {pairs.map(([leftIndex, rightIndex]) => {
-              const from = points.left[leftIndex];
-              const to = points.right[rightIndex];
-              if (!from || !to) return null;
-              const color = colors[leftIndex % colors.length];
-              return (
-                <g key={`${leftIndex}-${rightIndex}`}>
-                  <path d={linePath(from, to)} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" opacity="0.9" />
-                  <circle cx={from.x} cy={from.y} r="6" fill="white" stroke={color} strokeWidth="4" />
-                  <circle cx={to.x} cy={to.y} r="6" fill="white" stroke={color} strokeWidth="4" />
-                </g>
-              );
-            })}
-          </svg>
-
-          <div className="relative z-10 grid grid-cols-[minmax(260px,1fr)_120px_minmax(320px,1fr)] gap-3">
+        <div className="min-w-[760px] rounded-xl bg-surface-container-low p-4">
+          <div className="grid grid-cols-[minmax(260px,1fr)_120px_minmax(320px,1fr)] gap-3">
             <section>
               <h3 className="mb-3 text-center text-sm font-bold uppercase tracking-wide text-on-surface-variant">Column A (Key Terms)</h3>
               <div className="space-y-2.5">
                 {left.map((item, leftIndex) => {
                   const connectedRight = chosen.get(leftIndex);
                   const selected = activeLeft === leftIndex;
-                  const color = colors[leftIndex % colors.length];
                   return (
                     <div key={leftIndex} className="flex items-center gap-2">
                       <button
@@ -480,19 +407,21 @@ function MatchingInput({ left, right, pairs, onChange }: {
                         <span className="text-xs font-bold text-on-surface-variant">___ {leftIndex + 1}</span>
                         <span className="mt-1 block font-semibold text-on-surface">{item}</span>
                         {connectedRight != null && (
-                          <span className="mt-1 block text-xs font-semibold text-secondary">
-                            Connected to {String.fromCharCode(65 + connectedRight)}
+                          <span className="mt-1 inline-flex rounded bg-secondary-container px-2 py-0.5 text-xs font-semibold text-on-secondary-container">
+                            Answer {String.fromCharCode(65 + connectedRight)}
                           </span>
                         )}
                       </button>
                       <button
-                        ref={(node) => { leftRefs.current[leftIndex] = node; }}
                         type="button"
                         onClick={() => setActiveLeft(selected ? null : leftIndex)}
-                        aria-label={`Connection point for ${item}`}
-                        className={`h-6 w-6 shrink-0 rounded-full border-[3px] bg-white transition-transform ${selected ? "scale-110" : ""}`}
-                        style={{ borderColor: selected || connectedRight != null ? color : "#94a3b8" }}
-                      />
+                        aria-label={`Select ${item}`}
+                        className={`h-8 w-8 shrink-0 rounded-full border text-sm font-bold transition-colors ${
+                          selected ? "border-secondary bg-secondary text-on-secondary" : connectedRight != null ? "border-secondary text-secondary" : "border-outline-variant text-on-surface-variant"
+                        }`}
+                      >
+                        {leftIndex + 1}
+                      </button>
                       {connectedRight != null && (
                         <button
                           type="button"
@@ -519,20 +448,21 @@ function MatchingInput({ left, right, pairs, onChange }: {
               <div className="space-y-2.5">
                 {right.map((item, rightIndex) => {
                   const connectedLeft = usedRight.get(rightIndex);
-                  const selectedColor = connectedLeft != null ? colors[connectedLeft % colors.length] : "#94a3b8";
                   return (
                     <div key={rightIndex} className="flex items-center gap-2">
                       <button
-                        ref={(node) => { rightRefs.current[rightIndex] = node; }}
                         type="button"
                         onClick={() => {
                           if (activeLeft != null) connect(activeLeft, rightIndex);
                           else if (connectedLeft != null) setActiveLeft(connectedLeft);
                         }}
-                        aria-label={`Connection point for definition ${String.fromCharCode(65 + rightIndex)}`}
-                        className={`h-6 w-6 shrink-0 rounded-full border-[3px] bg-white transition-transform ${activeLeft != null ? "hover:scale-110" : ""}`}
-                        style={{ borderColor: selectedColor }}
-                      />
+                        aria-label={`Select definition ${String.fromCharCode(65 + rightIndex)}`}
+                        className={`h-8 w-8 shrink-0 rounded-full border text-sm font-bold transition-colors ${
+                          connectedLeft != null ? "border-secondary text-secondary" : activeLeft != null ? "border-secondary bg-white text-secondary" : "border-outline-variant text-on-surface-variant"
+                        }`}
+                      >
+                        {String.fromCharCode(65 + rightIndex)}
+                      </button>
                       <button
                         type="button"
                         onClick={() => {
@@ -545,6 +475,11 @@ function MatchingInput({ left, right, pairs, onChange }: {
                       >
                         <span className="text-xs font-bold text-on-surface-variant">{String.fromCharCode(65 + rightIndex)}</span>
                         <span className="mt-1 block text-on-surface">{item}</span>
+                        {connectedLeft != null && (
+                          <span className="mt-1 inline-flex rounded bg-secondary-container px-2 py-0.5 text-xs font-semibold text-on-secondary-container">
+                            Matched to {connectedLeft + 1}
+                          </span>
+                        )}
                       </button>
                     </div>
                   );
